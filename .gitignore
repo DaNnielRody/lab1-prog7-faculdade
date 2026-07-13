@@ -1,0 +1,34 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# .NET
+*.user
+*.suo
+project.lock.json
+*.nupkg
+*.snupkg
+
+# Rider / VS / VS Code
+.vs/
+.idea/
+.vscode/
+*.DotSettings.user
+
+# Runtime data directories (created automatically at startup)
+filestore/
+data/
+**/filestore/
+**/data/
+
+# Logs & temp
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/filestore/
+**/data/
+**/.vs/
+**/.idea/
+**/.vscode/
+.git/
+.gitignore
+*.log
+README.md

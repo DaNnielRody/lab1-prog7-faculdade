@@ -1,0 +1,22 @@
+services:
+  audio-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: prog7-audio-api:latest
+    container_name: prog7-audio-api
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Data Source=/app/data/audios.db"
+      Storage__LocalPath: /app/filestore
+      Upload__MaxSizeBytes: "52428800"
+    volumes:
+      - audio-data:/app/data
+      - audio-files:/app/filestore
+    restart: unless-stopped
+
+volumes:
+  audio-data:
+  audio-files:
