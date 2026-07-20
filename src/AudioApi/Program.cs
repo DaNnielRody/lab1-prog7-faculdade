@@ -1,4 +1,3 @@
-using AudioApi.Compression;
 using AudioApi.Data;
 using AudioApi.Endpoints;
 using AudioApi.Options;
@@ -12,7 +11,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<UploadOptions>(builder.Configuration.GetSection(UploadOptions.SectionName));
-builder.Services.Configure<CompressionOptions>(builder.Configuration.GetSection(CompressionOptions.SectionName));
 
 var uploadOptions = builder.Configuration.GetSection(UploadOptions.SectionName).Get<UploadOptions>() ?? new UploadOptions();
 
@@ -28,7 +26,6 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
 
 builder.Services.AddSingleton<IFileStore, LocalFileStore>();
-builder.Services.AddSingleton<IAudioCompressor, FfmpegAudioCompressor>();
 builder.Services.AddScoped<AudioFileValidator>();
 
 builder.Services.AddProblemDetails();
