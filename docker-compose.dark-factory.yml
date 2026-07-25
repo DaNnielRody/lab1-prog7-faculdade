@@ -1,0 +1,45 @@
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - dark-factory
+
+services:
+  unit-tests:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+      target: test
+    image: prog7-sandbox-test:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Summarization__Enabled: "false"
+    tmpfs:
+      - /tmp:size=512m
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  integration:
+    <<: *hardening
+    profiles:
+      - integration
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+      target: integration
+    image: prog7-sandbox-integration:latest
+    tmpfs:
+      - /tmp:size=512m
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+networks:
+  dark-factory:
+    driver: bridge

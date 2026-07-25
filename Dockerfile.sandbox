@@ -1,0 +1,45 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS deps
+WORKDIR /src
+
+COPY Prog7.slnx ./
+COPY src/AudioApi/AudioApi.csproj src/AudioApi/
+COPY tests/AudioApi.Tests/AudioApi.Tests.csproj tests/AudioApi.Tests/
+RUN dotnet restore tests/AudioApi.Tests/AudioApi.Tests.csproj
+
+FROM deps AS test
+WORKDIR /src
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1001 sandbox \
+    && useradd --uid 1001 --gid 1001 --create-home --shell /usr/sbin/nologin sandbox
+
+COPY --chown=sandbox:sandbox . .
+RUN chown -R sandbox:sandbox /src
+
+USER sandbox
+
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    ASPNETCORE_ENVIRONMENT=Development
+
+RUN dotnet build tests/AudioApi.Tests/AudioApi.Tests.csproj -c Release --nologo
+
+CMD ["dotnet", "test", "tests/AudioApi.Tests/AudioApi.Tests.csproj", "-c", "Release", "--no-build", "--nologo"]
+
+FROM test AS integration
+WORKDIR /src
+
+USER root
+COPY docker/sandbox/smoke.sh /usr/local/bin/smoke.sh
+RUN chmod 0755 /usr/local/bin/smoke.sh
+USER sandbox
+
+ENV ConnectionStrings__Default="Data Source=/tmp/sandbox/data/audios.db" \
+    Storage__LocalPath=/tmp/sandbox/filestore \
+    Summarization__Enabled=false
+
+CMD ["/usr/local/bin/smoke.sh"]
