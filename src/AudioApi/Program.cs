@@ -3,6 +3,7 @@ using AudioApi.Data;
 using AudioApi.Endpoints;
 using AudioApi.Options;
 using AudioApi.Storage;
+using AudioApi.Summarization;
 using AudioApi.Validation;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<UploadOptions>(builder.Configuration.GetSection(UploadOptions.SectionName));
 builder.Services.Configure<CompressionOptions>(builder.Configuration.GetSection(CompressionOptions.SectionName));
+builder.Services.Configure<SummarizationOptions>(builder.Configuration.GetSection(SummarizationOptions.SectionName));
+
+var summarizationOptions = builder.Configuration.GetSection(SummarizationOptions.SectionName).Get<SummarizationOptions>()
+    ?? new SummarizationOptions();
 
 var uploadOptions = builder.Configuration.GetSection(UploadOptions.SectionName).Get<UploadOptions>() ?? new UploadOptions();
 
@@ -30,6 +35,14 @@ builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connect
 builder.Services.AddSingleton<IFileStore, LocalFileStore>();
 builder.Services.AddSingleton<IAudioCompressor, FfmpegAudioCompressor>();
 builder.Services.AddScoped<AudioFileValidator>();
+
+builder.Services.AddSingleton<ISummaryQueue, SummaryQueue>();
+builder.Services.AddHttpClient<IAudioSummarizer, WhisperAudioSummarizer>(client =>
+{
+    client.BaseAddress = new Uri(summarizationOptions.Endpoint.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, summarizationOptions.TimeoutSeconds));
+});
+builder.Services.AddHostedService<AudioSummaryBackgroundService>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();

@@ -9,7 +9,11 @@ public sealed record AudioFileDto(
     string Url,
     string ContentType,
     long SizeBytes,
-    DateTime CreatedAtUtc)
+    DateTime CreatedAtUtc,
+    SummaryStatus SummaryStatus,
+    string? Summary,
+    string? SummaryLanguage,
+    DateTime? SummaryUpdatedAtUtc)
 {
     public static AudioFileDto FromEntity(AudioFile e) => new(
         e.Id,
@@ -18,5 +22,9 @@ public sealed record AudioFileDto(
         e.Url,
         e.ContentType,
         e.SizeBytes,
-        e.CreatedAtUtc);
+        e.CreatedAtUtc,
+        e.SummaryStatus,
+        e.Summary,
+        e.SummaryLanguage,
+        e.SummaryUpdatedAtUtc);
 }

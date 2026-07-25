@@ -2,11 +2,14 @@ using AudioApi.Compression;
 using AudioApi.Data;
 using AudioApi.Dtos;
 using AudioApi.Models;
+using AudioApi.Options;
 using AudioApi.Storage;
+using AudioApi.Summarization;
 using AudioApi.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AudioApi.Endpoints;
 
@@ -39,6 +42,12 @@ public static class AudioEndpoints
             .WithSummary("Baixa os bytes do arquivo de áudio.")
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/summary", GetSummaryAsync)
+            .WithName("GetAudioSummary")
+            .WithSummary("Obtém o resumo do áudio (no máximo 500 caracteres) e o estado da sumarização.")
+            .Produces<AudioSummaryDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -49,6 +58,8 @@ public static class AudioEndpoints
         IFileStore fileStore,
         IAudioCompressor compressor,
         AudioFileValidator validator,
+        ISummaryQueue summaryQueue,
+        IOptions<SummarizationOptions> summarizationOptions,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -96,6 +107,8 @@ public static class AudioEndpoints
             stored = await fileStore.SaveAsync(id, compressed.Extension, compressed.Stream, baseUrl, ct);
         }
 
+        var summarizationEnabled = summarizationOptions.Value.Enabled;
+
         var entity = new AudioFile
         {
             Id = id,
@@ -105,12 +118,23 @@ public static class AudioEndpoints
             ContentType = compressed.ContentType,
             SizeBytes = stored.SizeBytes,
             CreatedAtUtc = DateTime.UtcNow,
+            SummaryStatus = summarizationEnabled ? SummaryStatus.Pending : SummaryStatus.Disabled,
+            SummaryUpdatedAtUtc = summarizationEnabled ? DateTime.UtcNow : null,
         };
 
         db.AudioFiles.Add(entity);
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
+
+        if (summarizationEnabled && !summaryQueue.TryEnqueue(id))
+        {
+            logger.LogWarning("Fila de sumarização cheia; o áudio {Id} não será resumido.", id);
+            entity.SummaryStatus = SummaryStatus.Failed;
+            entity.SummaryError = "A fila de sumarização está cheia; tente enviar o áudio novamente mais tarde.";
+            entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
 
         var dto = AudioFileDto.FromEntity(entity);
         return Results.Created($"/api/audios/{id}", dto);
@@ -133,6 +157,18 @@ public static class AudioEndpoints
         return entity is null
             ? TypedResults.NotFound()
             : TypedResults.Ok(AudioFileDto.FromEntity(entity));
+    }
+
+    private static async Task<Results<Ok<AudioSummaryDto>, NotFound>> GetSummaryAsync(
+        Guid id,
+        AppDbContext db,
+        IOptions<SummarizationOptions> summarizationOptions,
+        CancellationToken ct)
+    {
+        var entity = await db.AudioFiles.FindAsync([id], ct);
+        return entity is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(AudioSummaryDto.FromEntity(entity, summarizationOptions.Value.EffectiveMaxSummaryChars));
     }
 
     private static async Task<IResult> DownloadAsync(
