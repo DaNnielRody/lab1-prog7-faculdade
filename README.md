@@ -8,10 +8,20 @@ do file store e os demais metadados.
 
 - Recebe um arquivo de áudio via `multipart/form-data`.
 - Valida se o upload é realmente um áudio (por content-type `audio/*` **ou** por extensão).
-- Gera um `Guid` (UUID) para o arquivo e grava os bytes no file store preservando a extensão.
+- Gera um `Guid` (UUID) para o arquivo, **comprime o áudio para AAC** (`.m4a`, via `ffmpeg`) e
+  grava apenas o arquivo comprimido no file store.
 - Persiste um registro no banco com: `Id`, `OriginalFileName`, `StoredFileName`, `Url`,
   `ContentType`, `SizeBytes`, `CreatedAtUtc`.
-- Expõe endpoints para consultar os metadados, baixar o arquivo e listar tudo.
+- Expõe endpoints para consultar os metadados, baixar o arquivo (já comprimido) e listar tudo.
+
+### Compressão de áudio (AAC)
+
+Todo áudio enviado é transcodificado para **AAC** (container `.m4a`, 128 kbps por padrão) via
+`ffmpeg` (`AudioApi.Compression.FfmpegAudioCompressor`) antes de ser salvo no file store — o
+arquivo original nunca é persistido. O tempo de compressão é medido e logado
+(`Áudio comprimido para AAC em {ms}ms ...`). Se o arquivo não puder ser decodificado como áudio,
+a API responde **422 Unprocessable Entity**. Ver análise completa em
+[`docs/week2-analysis.md`](docs/week2-analysis.md), incluindo a discussão sobre threading.
 
 ### Visão de arquitetura
 
@@ -40,7 +50,8 @@ do file store e os demais metadados.
 ## Pré-requisitos
 
 - **.NET 10 SDK** (testado com `10.0.109`).
-- Opcional: **Docker** + **Docker Compose**.
+- **ffmpeg** disponível no `PATH` (usado para comprimir os áudios para AAC).
+- Opcional: **Docker** + **Docker Compose** (a imagem já instala o `ffmpeg`).
 
 ## Como rodar em desenvolvimento
 
@@ -71,10 +82,10 @@ Resposta (201 Created):
 {
   "id": "bfbb5766-c677-402c-9d6c-990600514573",
   "originalFileName": "test.wav",
-  "storedFileName": "bfbb5766c677402c9d6c990600514573.wav",
+  "storedFileName": "bfbb5766c677402c9d6c990600514573.m4a",
   "url": "http://localhost:5218/api/audios/bfbb5766-c677-402c-9d6c-990600514573/download",
-  "contentType": "audio/wav",
-  "sizeBytes": 100000,
+  "contentType": "audio/mp4",
+  "sizeBytes": 8213,
   "createdAtUtc": "2026-07-12T23:30:44.21Z"
 }
 ```
@@ -123,9 +134,13 @@ dotnet test
 O projeto **`tests/AudioApi.Tests`** (xUnit) inclui:
 
 - Testes de unidade da validação de áudio (rejeita `.txt`/não-áudio, aceita `.wav`, etc.).
-- Teste de integração com `WebApplicationFactory`: faz `POST` de um `.wav` falso, valida
-  **201** e recupera o registro via `GET` e via `/download`. Usa um diretório de file store
-  temporário e um banco SQLite temporário, sendo totalmente autocontido.
+- Teste de integração com `WebApplicationFactory`: faz `POST` de um `.wav` válido, valida
+  **201**, recupera o registro via `GET` e via `/download`, e confirma que o arquivo baixado
+  é o AAC comprimido (não os bytes originais). Usa um diretório de file store temporário e um
+  banco SQLite temporário, sendo totalmente autocontido.
+- Testes de unidade do `FfmpegAudioCompressor`: confirmam que um WAV válido é comprimido para
+  um container AAC/M4A válido e que áudio não decodificável lança erro (ver
+  [`docs/week2-analysis.md`](docs/week2-analysis.md)).
 
 ## Onde ficam os arquivos e o banco
 
@@ -145,6 +160,10 @@ No Docker esses caminhos são `/app/filestore` e `/app/data`, mapeados para volu
   "Upload": {
     "MaxSizeBytes": 52428800,          // 50 MB
     "AllowedExtensions": [ ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".webm" ]
+  },
+  "Compression": {
+    "FfmpegPath": "ffmpeg",            // caminho/nome do binário do ffmpeg
+    "BitrateKbps": 128                 // bitrate do AAC de saída
   }
 }
 ```
@@ -162,11 +181,18 @@ src/AudioApi/
   Dtos/AudioFileDto.cs
   Options/StorageOptions.cs
   Options/UploadOptions.cs
+  Options/CompressionOptions.cs
   Storage/IFileStore.cs
   Storage/LocalFileStore.cs
+  Compression/IAudioCompressor.cs
+  Compression/FfmpegAudioCompressor.cs
   Validation/AudioFileValidator.cs
   Endpoints/AudioEndpoints.cs
 tests/AudioApi.Tests/
   AudioFileValidatorTests.cs
   AudioApiIntegrationTests.cs
+  FfmpegAudioCompressorTests.cs
+  TestAudio.cs
+docs/
+  week2-analysis.md
 ```

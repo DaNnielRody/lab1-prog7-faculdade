@@ -15,12 +15,11 @@ public class AudioApiIntegrationTests : IClassFixture<AudioApiIntegrationTests.T
     public AudioApiIntegrationTests(TempAppFactory factory) => _factory = factory;
 
     [Fact]
-    public async Task Post_Wav_Returns201_AndRecordIsRetrievable()
+    public async Task Post_Wav_Returns201_AndAudioIsStoredCompressedAsAac()
     {
         var client = _factory.CreateClient();
 
-        var bytes = new byte[2048];
-        new Random(42).NextBytes(bytes);
+        var bytes = TestAudio.CreateValidWavBytes();
 
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(bytes);
@@ -34,7 +33,8 @@ public class AudioApiIntegrationTests : IClassFixture<AudioApiIntegrationTests.T
         Assert.NotNull(created);
         Assert.NotEqual(Guid.Empty, created!.Id);
         Assert.Equal("sample.wav", created.OriginalFileName);
-        Assert.Equal(bytes.Length, created.SizeBytes);
+        Assert.EndsWith(".m4a", created.StoredFileName);
+        Assert.Equal("audio/mp4", created.ContentType);
         Assert.Contains($"/api/audios/{created.Id}/download", created.Url);
         Assert.Equal($"/api/audios/{created.Id}", post.Headers.Location?.ToString());
 
@@ -47,7 +47,29 @@ public class AudioApiIntegrationTests : IClassFixture<AudioApiIntegrationTests.T
         var download = await client.GetAsync($"/api/audios/{created.Id}/download");
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
         var downloaded = await download.Content.ReadAsByteArrayAsync();
-        Assert.Equal(bytes, downloaded);
+
+        // Downloaded file must be the AAC/M4A (MP4 container) output, not the original WAV bytes.
+        Assert.NotEqual(bytes, downloaded);
+        Assert.Equal(created.SizeBytes, downloaded.Length);
+        var header = System.Text.Encoding.ASCII.GetString(downloaded, 4, 8);
+        Assert.Contains("ftyp", header);
+    }
+
+    [Fact]
+    public async Task Post_AudioContentTypeButNotDecodable_Returns422()
+    {
+        var client = _factory.CreateClient();
+
+        var bytes = new byte[2048];
+        new Random(42).NextBytes(bytes);
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+        content.Add(fileContent, "file", "garbage.wav");
+
+        var post = await client.PostAsync("/api/audios", content);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, post.StatusCode);
     }
 
     [Fact]

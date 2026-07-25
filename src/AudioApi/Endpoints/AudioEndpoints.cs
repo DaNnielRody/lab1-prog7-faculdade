@@ -1,3 +1,4 @@
+using AudioApi.Compression;
 using AudioApi.Data;
 using AudioApi.Dtos;
 using AudioApi.Models;
@@ -46,6 +47,7 @@ public static class AudioEndpoints
         HttpRequest request,
         AppDbContext db,
         IFileStore fileStore,
+        IAudioCompressor compressor,
         AudioFileValidator validator,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -71,17 +73,27 @@ public static class AudioEndpoints
         }
 
         var id = Guid.NewGuid();
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
 
-        var contentType = string.IsNullOrWhiteSpace(file.ContentType)
-            ? "application/octet-stream"
-            : file.ContentType;
+        CompressedAudio compressed;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            compressed = await compressor.CompressToAacAsync(stream, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning(ex, "Falha ao comprimir áudio para AAC (arquivo: {FileName})", file.FileName);
+            return Results.Problem(
+                title: "Falha ao processar áudio",
+                detail: "Não foi possível comprimir o arquivo enviado para AAC. Verifique se o arquivo é um áudio válido.",
+                statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
 
         StoredFile stored;
-        await using (var stream = file.OpenReadStream())
+        await using (compressed.Stream)
         {
-            stored = await fileStore.SaveAsync(id, extension, stream, baseUrl, ct);
+            stored = await fileStore.SaveAsync(id, compressed.Extension, compressed.Stream, baseUrl, ct);
         }
 
         var entity = new AudioFile
@@ -90,7 +102,7 @@ public static class AudioEndpoints
             OriginalFileName = file.FileName,
             StoredFileName = stored.StoredFileName,
             Url = stored.Url,
-            ContentType = contentType,
+            ContentType = compressed.ContentType,
             SizeBytes = stored.SizeBytes,
             CreatedAtUtc = DateTime.UtcNow,
         };
