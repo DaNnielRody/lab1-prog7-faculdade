@@ -349,9 +349,15 @@ label — the button is no longer the thing making progress, the thread is.
 Semi Bold in `{colors.text.inverse}`, radius `{rounded.full}`. Exactly one use: "Recomeçar" inside
 `{component.dialog-confirm}`.
 
-**`{component.button-play}`** — 38px `{rounded.full}` circle, `{colors.brand.primary}` fill, white
-triangle glyph. Disabled variant `{component.button-play-disabled}`: fill
-`{colors.surface.hairline-strong}`, whole player card at 55% opacity.
+**`{component.button-play}`** — `{size.play-button}` `{rounded.full}` circle,
+`{colors.brand.primary}` fill, `{colors.text.primary}` triangle glyph. Disabled variant
+`{component.button-play-disabled}`: fill `{colors.surface.hairline-strong}`, same ink glyph, whole
+player card at 55% opacity.
+
+The glyph is ink on both fills, not white: white measures 3.12:1 on `{colors.brand.primary}` and
+1.56:1 on `{colors.surface.hairline-strong}` — the disabled triangle would be invisible. Ink is
+5.74:1 and 11.45:1. This is §8 Don't 1 applied to a glyph, which is exactly the same rule as for a
+label.
 
 ### Inputs & Forms
 
@@ -385,7 +391,9 @@ where the audio element has reported it (the player). A card outside the player 
 **`{component.select}`** — height 40px, background `{colors.surface.canvas}`, 1px
 `{colors.surface.hairline}`, radius `{rounded.sm}`, padding `{spacing.3}`, value in `{type.body}`
 `{colors.text.primary}`, chevron in `{colors.text.secondary}`. One instance: "Idioma → Detectar
-automaticamente".
+automaticamente", and it is **disabled**: the upload endpoint carries no language parameter, so a
+list of pickable languages would promise a choice the request cannot make. The field exists to
+state how language is decided, not to decide it.
 
 **`{component.field-group}`** — vertical stack, gap `{spacing.2}`, first child is a
 `{type.overline}` label in `{colors.text.secondary}`. Every panel control is wrapped in one.
@@ -445,7 +453,7 @@ note glyph in `{colors.brand.text}`, `{type.heading}` headline "Nenhum áudio ai
 ### Status & Badges
 
 **`{component.status-chip}`** — pill, radius `{rounded.full}`, padding `{spacing.1}`
-`{spacing.3}`, 6px dot + `{type.label}` Medium. Five variants, one per real state:
+`{spacing.3}`, 6px dot + `{type.label}` Medium. Six variants, one per state the screen can be in:
 
 | Variant | Dot / label color | Background | Copy |
 |---------|------------------|------------|------|
@@ -565,7 +573,9 @@ does not repeat it.
 
 **`{component.summary-preview-card}`** — `{colors.surface.muted}`, 1px
 `{colors.surface.hairline}`, radius `{rounded.md}`, quoted summary in `{type.body}`, footer row of
-`{component.badge-mono}` language + `{type.mono}` character count + right-aligned elapsed time.
+`{component.badge-mono}` language + `{type.mono}` character count. No elapsed time: nothing in the
+API or the client measures how long the transcription took, and §8 Don't 3 forbids showing a
+number the system did not observe.
 
 **`{component.error-detail-card}`** — `{colors.semantic.danger-soft}`, 1px `{colors.semantic.danger-border}`, radius
 `{rounded.md}`, title `{type.body}` Semi Bold in `{colors.semantic.danger}` with the raw
