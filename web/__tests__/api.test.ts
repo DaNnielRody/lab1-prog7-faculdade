@@ -168,6 +168,28 @@ describe("uploadAudio", () => {
     });
   });
 
+  it("never echoes the framework's English 500 body into the Portuguese UI", async () => {
+    const promise = uploadAudio(makeFile());
+    // Verbatim ASP.NET boilerplate: the exception handler writes valid ProblemDetails whose
+    // detail is English and says nothing useful. Trusting it would leak it onto the screen.
+    FakeXhr.last().respond(
+      500,
+      JSON.stringify({
+        title: "An error occurred while processing your request.",
+        detail: "An error occurred while processing your request.",
+        status: 500,
+      }),
+    );
+
+    const error = await promise.catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(500);
+    expect((error as ApiError).message).not.toContain("An error occurred");
+    expect((error as ApiError).message).toBe(
+      "O servidor não conseguiu processar este áudio. Tente novamente em instantes.",
+    );
+  });
+
   it("falls back to a Portuguese message when the error body is not ProblemDetails", async () => {
     const promise = uploadAudio(makeFile());
     FakeXhr.last().respond(500, "<html>boom</html>");

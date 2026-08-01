@@ -33,6 +33,11 @@ const DECODE_ERROR =
 const VALIDATION_ERROR = "Arquivo inválido. Verifique o formato e o tamanho do áudio.";
 const ABORT_ERROR = "O envio foi cancelado.";
 
+/** Returns the trimmed string, or "" for anything that is not one. */
+function asText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function parseProblemDetails(body: string): ProblemDetails | null {
   if (!body) return null;
   try {
@@ -46,10 +51,25 @@ function parseProblemDetails(body: string): ProblemDetails | null {
   return null;
 }
 
-/** Picks the most specific Portuguese message available for a failed response. */
+const SERVER_ERROR =
+  "O servidor não conseguiu processar este áudio. Tente novamente em instantes.";
+
+/**
+ * Picks the most specific Portuguese message available for a failed response.
+ *
+ * The body is only trusted for 4xx: those ProblemDetails are written by the API itself, in
+ * Portuguese (see .claude/contexts/api/CONTEXT.md → "Validation error"). A 5xx body comes from
+ * ASP.NET's own exception handler and reads "An error occurred while processing your request." —
+ * English boilerplate that says nothing to the user and breaks the language of the interface.
+ */
 function messageForStatus(status: number, body: string): string {
+  if (status >= 500) return SERVER_ERROR;
+
   const problem = parseProblemDetails(body);
-  const fromBody = problem?.detail?.trim() || problem?.title?.trim();
+  // `detail`/`title` are whatever crossed the wire. A proxy answering {"detail": 42} would make
+  // `.trim()` throw, and this runs outside any try — the promise would never settle and the
+  // screen would sit on the loading bubble forever.
+  const fromBody = asText(problem?.detail) || asText(problem?.title);
   if (fromBody) return fromBody;
 
   if (status === 400) return VALIDATION_ERROR;
