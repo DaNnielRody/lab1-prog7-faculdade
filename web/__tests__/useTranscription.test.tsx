@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, getSummary, uploadAudio } from "@/lib/api";
-import { useTranscription } from "@/lib/useTranscription";
+import { POLL_INTERVAL_MS, useTranscription } from "@/lib/useTranscription";
 import type { AudioFileDto, AudioSummaryDto, SummaryStatus } from "@/lib/types";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -332,5 +332,84 @@ describe("useTranscription", () => {
     expect(result.current.phase).toBe("failed");
     expect(result.current.error).toMatch(/Selecione um arquivo/);
     expect(uploadAudioMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A session is a generation, not just an interval. Between start() and the upload resolving
+   * there is no poller yet, so reset()/unmount in that window leaves nothing for the pending
+   * continuation to notice — it would revive a cleared screen or start a poller nobody can stop.
+   */
+  describe("a session that ended never comes back", () => {
+    it("drops an upload that resolves after reset()", async () => {
+      let release!: (dto: AudioFileDto) => void;
+      uploadAudioMock.mockImplementation(
+        () => new Promise<AudioFileDto>((resolve) => { release = resolve; }),
+      );
+      getSummaryMock.mockResolvedValue(summaryDto("Processing"));
+
+      const { result } = renderHook(() => useTranscription());
+      act(() => result.current.selectFile(file()));
+      let started!: Promise<void>;
+      await act(async () => { started = result.current.start(); });
+      expect(result.current.phase).toBe("uploading");
+
+      act(() => result.current.reset());
+      expect(result.current.phase).toBe("idle");
+
+      await act(async () => { release(audioDto("Pending")); await started; });
+
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.audio).toBeNull();
+      expect(result.current.messages).toHaveLength(0);
+
+      await tick(3);
+      expect(getSummaryMock).not.toHaveBeenCalled();
+    });
+
+    it("never starts a poller when the upload resolves after unmount", async () => {
+      let release!: (dto: AudioFileDto) => void;
+      uploadAudioMock.mockImplementation(
+        () => new Promise<AudioFileDto>((resolve) => { release = resolve; }),
+      );
+      getSummaryMock.mockResolvedValue(summaryDto("Processing"));
+
+      const { result, unmount } = renderHook(() => useTranscription());
+      act(() => result.current.selectFile(file()));
+      let started!: Promise<void>;
+      await act(async () => { started = result.current.start(); });
+
+      unmount();
+      await act(async () => { release(audioDto("Pending")); await started; });
+      await tick(5);
+
+      // Without the generation guard this leaks an interval that outlives the component and
+      // hits the API every 2s for the life of the page.
+      expect(getSummaryMock).not.toHaveBeenCalled();
+    });
+
+    it("ignores a poll response belonging to a previous session", async () => {
+      let releaseSummary!: (dto: AudioSummaryDto) => void;
+      uploadAudioMock.mockResolvedValue(audioDto("Pending"));
+      getSummaryMock.mockImplementationOnce(
+        () => new Promise<AudioSummaryDto>((resolve) => { releaseSummary = resolve; }),
+      );
+
+      const { result } = renderHook(() => useTranscription());
+      act(() => result.current.selectFile(file()));
+      await act(async () => { await result.current.start(); });
+      expect(result.current.phase).toBe("pending");
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
+      act(() => result.current.reset());
+
+      // The first session's poll answers "Completed" long after the user cleared the screen.
+      await act(async () => {
+        releaseSummary(summaryDto("Completed"));
+        await Promise.resolve();
+      });
+
+      expect(result.current.phase).toBe("idle");
+      expect(result.current.summary).toBeNull();
+    });
   });
 });

@@ -37,6 +37,18 @@ const PHASE_BY_STATUS: Record<SummaryStatus, Phase> = {
 
 const TERMINAL_PHASES: readonly Phase[] = ["completed", "failed", "disabled"];
 
+/**
+ * Maps an API status to a phase, failing loud on anything unknown.
+ *
+ * A bare lookup returns `undefined` for a status this build has never heard of (a sixth
+ * SummaryStatus, a proxy rewriting the body). `undefined` is not terminal, so the poller would
+ * keep running against a thread that renders nothing — a blank screen for five minutes. Treating
+ * it as a failure at least tells the user something happened.
+ */
+function phaseForStatus(status: SummaryStatus): Phase {
+  return PHASE_BY_STATUS[status] ?? "failed";
+}
+
 function isTerminal(phase: Phase): boolean {
   return TERMINAL_PHASES.includes(phase);
 }
@@ -79,6 +91,19 @@ export function useTranscription(): UseTranscription {
   const fileRef = useRef<SelectedFile | null>(null);
   const audioRef = useRef<AudioFileDto | null>(null);
 
+  /**
+   * Identifies the live session. `start()`, `retry()` and `reset()` open a new one, and unmount
+   * closes the last one for good. Every async continuation captures the generation it belongs to
+   * and drops itself if that generation is no longer current.
+   *
+   * `intervalRef` cannot carry this on its own: between `start()` and the upload resolving there
+   * is no interval yet, so a `reset()` or an unmount in that window leaves nothing for the
+   * continuation to notice — it would revive a cleared session, or start a poller that outlives
+   * the component and calls the API every 2s for the life of the page.
+   */
+  const generationRef = useRef(0);
+  const isCurrent = useCallback((generation: number) => generationRef.current === generation, []);
+
   const stopPoller = useCallback(() => {
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
@@ -102,7 +127,7 @@ export function useTranscription(): UseTranscription {
   }, []);
 
   const poll = useCallback(
-    async (id: string) => {
+    async (id: string, generation: number) => {
       if (ticksRef.current >= MAX_POLL_TICKS) {
         stopPoller();
         setError(TIMEOUT_MESSAGE);
@@ -115,37 +140,42 @@ export function useTranscription(): UseTranscription {
       try {
         dto = await getSummary(id);
       } catch (cause) {
-        // Same guard as the success path: a reset() or a terminal phase that landed while the
-        // request was in flight already ended the session, so a late rejection must not revive it.
-        if (intervalRef.current === null) return;
+        // Same guard as the success path: a reset(), an unmount or a terminal phase that landed
+        // while the request was in flight already ended the session, so a late rejection must not
+        // revive it.
+        if (!isCurrent(generation) || intervalRef.current === null) return;
         stopPoller();
         setError(cause instanceof ApiError ? cause.message : GENERIC_FAILURE);
         transition("failed");
         return;
       }
 
-      if (intervalRef.current === null) return; // stopped while the request was in flight
+      // Stopped, reset or unmounted while the request was in flight.
+      if (!isCurrent(generation) || intervalRef.current === null) return;
 
       setSummary(dto);
-      const next = PHASE_BY_STATUS[dto.status];
+      const next = phaseForStatus(dto.status);
       if (isTerminal(next)) {
         stopPoller();
         setError(next === "failed" ? (dto.error?.trim() || GENERIC_FAILURE) : null);
       }
       transition(next);
     },
-    [stopPoller, transition],
+    [isCurrent, stopPoller, transition],
   );
 
   const startPoller = useCallback(
-    (id: string) => {
+    (id: string, generation: number) => {
       stopPoller();
+      // The session this poller belongs to ended while its upload was in flight; starting an
+      // interval now would outlive the component and hit the API every 2s forever.
+      if (!isCurrent(generation)) return;
       ticksRef.current = 0;
       intervalRef.current = setInterval(() => {
-        void poll(id);
+        void poll(id, generation);
       }, POLL_INTERVAL_MS);
     },
-    [poll, stopPoller],
+    [isCurrent, poll, stopPoller],
   );
 
   const selectFile = useCallback((next: File) => {
@@ -176,6 +206,11 @@ export function useTranscription(): UseTranscription {
     }
 
     stopPoller();
+    // A fresh upload opens a new session: any continuation still pending from the previous one
+    // (an in-flight upload, a poll response on the wire) is now stale and must drop itself.
+    generationRef.current += 1;
+    const generation = generationRef.current;
+
     audioRef.current = null;
     setAudio(null);
     setSummary(null);
@@ -187,24 +222,29 @@ export function useTranscription(): UseTranscription {
     try {
       dto = await uploadAudio(selected.file, { onProgress: setProgress });
     } catch (cause) {
+      if (!isCurrent(generation)) return;
       setError(cause instanceof ApiError ? cause.message : GENERIC_FAILURE);
       transition("failed");
       return;
     }
 
+    // The user hit "Recomeçar", or the component unmounted, while the bytes were on the wire.
+    // The audio is stored server-side either way, but this screen has moved on.
+    if (!isCurrent(generation)) return;
+
     audioRef.current = dto;
     setAudio(dto);
 
-    const next = PHASE_BY_STATUS[dto.summaryStatus];
+    const next = phaseForStatus(dto.summaryStatus);
     if (next === "pending" || next === "processing") {
       transition(next);
-      startPoller(dto.id);
+      startPoller(dto.id, generation);
       return;
     }
 
     if (next === "failed") setError(dto.summaryError?.trim() || GENERIC_FAILURE);
     transition(next);
-  }, [startPoller, stopPoller, transition]);
+  }, [isCurrent, startPoller, stopPoller, transition]);
 
   const retry = useCallback(async () => {
     const existing = audioRef.current;
@@ -212,13 +252,16 @@ export function useTranscription(): UseTranscription {
       await start();
       return;
     }
+    generationRef.current += 1;
     setError(null);
     transition("pending");
-    startPoller(existing.id);
+    startPoller(existing.id, generationRef.current);
   }, [start, startPoller, transition]);
 
   const reset = useCallback(() => {
     stopPoller();
+    // Ends the session: whatever is still in flight resolves into a generation nobody listens to.
+    generationRef.current += 1;
     if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
     fileRef.current = null;
     audioRef.current = null;
@@ -235,6 +278,10 @@ export function useTranscription(): UseTranscription {
 
   useEffect(() => {
     return () => {
+      // Closes the session for good. Clearing the interval is not enough on its own: an upload
+      // still on the wire would resolve after this and start a brand-new poller on a component
+      // that no longer exists.
+      generationRef.current += 1;
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
       intervalRef.current = null;
       if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
