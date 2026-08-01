@@ -1,0 +1,43 @@
+import { Button } from "@/components/ui/Button";
+import { Dialog, DialogBody, DialogFooter } from "@/components/ui/Dialog";
+import { FileCard } from "@/components/ui/FileCard";
+import type { SelectedFile } from "@/lib/types";
+import { fileMeta } from "./format";
+
+/**
+ * Upload dialog (540px) — docs/DESIGN.md §7 Overlays, Figma frame M1.
+ * The last stop before `POST /api/audios`: it shows exactly what will be sent.
+ */
+export interface UploadDialogProps {
+  open: boolean;
+  file: SelectedFile | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+export function UploadDialog({ open, file, onClose, onConfirm }: UploadDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      width={540}
+      title="Enviar áudio para transcrição"
+      subtitle="O arquivo vai para POST /api/audios e a transcrição acontece fora da requisição."
+    >
+      <DialogBody>
+        {file ? <FileCard name={file.name} meta={fileMeta(file.name, file.sizeBytes)} /> : null}
+        <p className="text-body text-text-secondary">
+          O resumo é extrativo, gerado pelo Whisper tiny, e tem no máximo 500 caracteres.
+        </p>
+      </DialogBody>
+      <DialogFooter note="Nada é enviado até você confirmar.">
+        <Button variant="ghost" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={file === null}>
+          Enviar e transcrever
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
