@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(import.meta.dirname),
   },
+  // The dev overlay sits bottom-left, exactly on top of {component.api-status-card}. Compile and
+  // runtime errors are still surfaced with this off.
+  devIndicators: false,
 };
 
 export default nextConfig;
