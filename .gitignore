@@ -25,6 +25,17 @@ data/
 **/filestore/
 **/data/
 
+# Secrets (worker API key is generated per server)
+.env
+.env.*
+!.env.example
+worker/**/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
 # Logs & temp
 *.log
 *.tmp

@@ -15,4 +15,14 @@ public class AudioFile
     public long SizeBytes { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
+
+    public string? Summary { get; set; }
+
+    public SummaryStatus SummaryStatus { get; set; } = SummaryStatus.Disabled;
+
+    public string? SummaryLanguage { get; set; }
+
+    public string? SummaryError { get; set; }
+
+    public DateTime? SummaryUpdatedAtUtc { get; set; }
 }

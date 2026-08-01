@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace AudioApi.Tests;
 
+[Collection(IntegrationCollection.Name)]
 public class AudioApiIntegrationTests : IClassFixture<AudioApiIntegrationTests.TempAppFactory>
 {
     private readonly TempAppFactory _factory;
@@ -107,18 +108,12 @@ public class AudioApiIntegrationTests : IClassFixture<AudioApiIntegrationTests.T
         private readonly string _tempDir =
             Path.Combine(Path.GetTempPath(), "audioapi-tests-" + Guid.NewGuid().ToString("N"));
 
-        public TempAppFactory()
-        {
-            Directory.CreateDirectory(_tempDir);
-
-            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
-            Environment.SetEnvironmentVariable("Storage__LocalPath", Path.Combine(_tempDir, "filestore"));
-            Environment.SetEnvironmentVariable(
-                "ConnectionStrings__Default", $"Data Source={Path.Combine(_tempDir, "audios.db")}");
-        }
+        public TempAppFactory() => Directory.CreateDirectory(_tempDir);
 
         protected override IHost CreateHost(IHostBuilder builder)
         {
+            TestEnvironment.Apply(_tempDir);
+
             builder.UseEnvironment("Development");
             return base.CreateHost(builder);
         }
