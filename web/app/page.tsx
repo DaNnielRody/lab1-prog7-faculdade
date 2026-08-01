@@ -22,7 +22,7 @@ import { useTranscription } from "@/lib/useTranscription";
  */
 export default function TranscriptionScreen() {
   const session = useTranscription();
-  const { phase, error, file, summary } = session;
+  const { phase, error, file, summary, audio } = session;
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
@@ -121,6 +121,7 @@ export default function TranscriptionScreen() {
       <CompletedDialog
         open={completedOpen}
         summary={summary}
+        audio={audio}
         onClose={() => setCompletedOpen(false)}
       />
       <FailedDialog

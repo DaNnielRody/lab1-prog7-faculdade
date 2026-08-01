@@ -17,17 +17,15 @@ import { fileMeta } from "./format";
  */
 
 /**
- * Presentational only. `POST /api/audios` takes a single `file` part and no language parameter
+ * `POST /api/audios` takes a single `file` part and no language parameter
  * (src/AudioApi/Endpoints/AudioEndpoints.cs); the worker detects the language itself and returns
- * it in `summaryLanguage`. The control is here because docs/DESIGN.md §7 specifies the field, and
- * it is deliberately not wired to the request.
+ * it in `summaryLanguage`.
+ *
+ * So the field offers exactly the one value docs/DESIGN.md §7 specifies, and is disabled. Listing
+ * "Português", "Inglês", "Espanhol" would let a user pick a language the request cannot carry —
+ * the same broken promise §7 removed from the rail, moved into a form control.
  */
-const LANGUAGE_OPTIONS = [
-  { value: "auto", label: "Detectar automaticamente" },
-  { value: "pt", label: "Português" },
-  { value: "en", label: "Inglês" },
-  { value: "es", label: "Espanhol" },
-];
+const LANGUAGE_OPTIONS = [{ value: "auto", label: "Detectar automaticamente" }];
 
 /** Labels quote the API vocabulary verbatim — docs/DESIGN.md §7 {component.stepper}. */
 const STEP_LABELS = [
@@ -47,7 +45,11 @@ const STEP_STATES: Record<Phase, readonly StepState[]> = {
   pending: ["done", "active", "pending", "pending"],
   processing: ["done", "done", "active", "pending"],
   completed: ["done", "done", "done", "done"],
-  failed: ["done", "done", "failed", "pending"],
+  // "Na fila" is the only step a failure is known to have passed: the upload returned 201 and the
+  // audio was queued. Whether transcription ever started is not known here, so it stays pending
+  // and the failure is attributed to the queue step. Claiming "Processing" happened would be the
+  // panel inventing history the API never reported (§8 Don't 3).
+  failed: ["done", "failed", "pending", "pending"],
   disabled: ["done", "pending", "pending", "pending"],
 };
 
@@ -152,7 +154,7 @@ export function SettingsPanel({
         )}
       </FieldGroup>
 
-      <Select label="IDIOMA" options={LANGUAGE_OPTIONS} defaultValue="auto" />
+      <Select label="IDIOMA" options={LANGUAGE_OPTIONS} defaultValue="auto" disabled />
 
       <FieldGroup label="RESUMO">
         <div className="flex flex-col gap-2 rounded-sm border border-hairline bg-canvas p-3">

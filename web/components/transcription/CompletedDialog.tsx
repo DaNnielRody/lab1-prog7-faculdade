@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogBody, DialogFooter } from "@/components/ui/Dialog";
-import type { AudioSummaryDto } from "@/lib/types";
+import type { AudioFileDto, AudioSummaryDto } from "@/lib/types";
 import { summaryFacts } from "./format";
 
 /**
@@ -11,11 +11,14 @@ import { summaryFacts } from "./format";
 export interface CompletedDialogProps {
   open: boolean;
   summary: AudioSummaryDto | null;
+  /** Fallback source: an upload can answer `Completed` inline, in which case nothing ever polls. */
+  audio: AudioFileDto | null;
   onClose: () => void;
 }
 
-export function CompletedDialog({ open, summary, onClose }: CompletedDialogProps) {
-  const { text, length, maxLength, language } = summaryFacts(summary);
+export function CompletedDialog({ open, summary, audio, onClose }: CompletedDialogProps) {
+  // Same two sources, same order as the thread bubble — the two surfaces cannot disagree.
+  const { text, length, maxLength, language } = summaryFacts(summary, audio);
 
   return (
     <Dialog
