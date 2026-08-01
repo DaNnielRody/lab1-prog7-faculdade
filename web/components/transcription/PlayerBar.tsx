@@ -70,8 +70,11 @@ export function PlayerBar({ file, className }: PlayerBarProps) {
           // 38px {component.button-play}; off the 4px scale, a literal of §4 Component Metrics.
           style={{ width: "38px", height: "38px" }}
           className={cn(
-            "flex shrink-0 items-center justify-center rounded-full text-label",
-            enabled ? "bg-brand text-text-inverse" : "bg-hairline-strong text-text-inverse",
+            // The glyph is ink on both fills, per §8 Don't 1: white measures 3.12:1 on
+            // {colors.brand.primary} and 1.56:1 on {colors.surface.hairline-strong} — the
+            // disabled triangle was effectively invisible. Ink is 5.74:1 and 11.45:1.
+            "flex shrink-0 items-center justify-center rounded-full text-label text-text",
+            enabled ? "bg-brand" : "bg-hairline-strong",
           )}
         >
           <span aria-hidden="true">{playing ? "❚❚" : "▶"}</span>

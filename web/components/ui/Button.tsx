@@ -60,10 +60,13 @@ export function Button({
       className={cn(BASE, tone, fullWidth && "w-full", className)}
     >
       {loading ? (
-        <span
-          aria-hidden="true"
-          className="size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
-        />
+        // §7: "a 16px rotating glyph". §6: every glyph in this system is a text character, and
+        // `↻` is one of the sanctioned marks — a bordered CSS ring would be a second visual
+        // language for a mark the system already owns. globals.css disables the spin under
+        // prefers-reduced-motion.
+        <span aria-hidden="true" className="inline-block size-4 shrink-0 animate-spin text-label">
+          ↻
+        </span>
       ) : null}
       {/*
         The ink label is restated on the primary span so the §8 Don't 1 rule is legible on the

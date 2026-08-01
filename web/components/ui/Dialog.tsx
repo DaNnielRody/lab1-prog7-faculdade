@@ -55,15 +55,21 @@ export function Dialog({
       {open ? (
         <>
           {/* {component.scrim} — {colors.ink.base} at 42%, dismisses unless the dialog is a confirm. */}
+          <div className="fixed inset-0 bg-rail/42" />
+          {/*
+            The centering layer is a later sibling of the scrim, so it paints on top and would
+            swallow every outside click. It lets them through and the card takes them back, which
+            keeps the documented click-outside-to-dismiss path alive without a z-index ladder.
+          */}
           <div
-            className="fixed inset-0 bg-rail/42"
+            className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
             onClick={dismissable ? onClose : undefined}
-          />
-          <div className="fixed inset-0 flex items-center justify-center p-4">
+          >
             <div
               role="document"
               style={{ width: `${width}px` }}
-              className="relative flex max-w-full flex-col overflow-hidden rounded-lg bg-canvas shadow-dialog"
+              onClick={(event) => event.stopPropagation()}
+              className="pointer-events-auto relative flex max-w-full flex-col overflow-hidden rounded-lg bg-canvas shadow-dialog"
             >
               <header className="flex items-start gap-4 px-6 pt-6">
                 <div className="flex min-w-0 flex-col gap-2">
