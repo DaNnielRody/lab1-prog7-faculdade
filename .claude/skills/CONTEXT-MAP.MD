@@ -7,8 +7,10 @@ document for this repo: every `/darkagent` run opens this file first.
 
 - **Backend**: C# / .NET 10 (`net10.0`), ASP.NET Core **Minimal APIs**. Entry point
   `src/AudioApi/Program.cs`. Solution `Prog7.slnx`.
-- **Frontend**: none. Swagger UI (Development only) is the whole surface.
-  → `df-frontend` / `df-design` are **not generated** for this repo.
+- **Frontend**: **Next.js (App Router) + TypeScript + Tailwind v4** in `web/`, tests with
+  Vitest + React Testing Library. No component/state/HTTP library — platform + React only.
+  Visual source of truth: **`docs/DESIGN.md`** (produced by `/darkdesign`).
+  → `df-frontend` and `df-design` **are** generated for this repo.
 - **Data**: EF Core 10 + **SQLite** (`src/AudioApi/Data/AppDbContext.cs`), schema created via
   `db.Database.EnsureCreated()` — **no migrations folder**.
 - **External processes**: `ffmpeg` binary (audio → AAC), Whisper worker over HTTP
@@ -28,6 +30,7 @@ document for this repo: every `/darkagent` run opens this file first.
 - [Compression](../contexts/compression/CONTEXT.md) — `IAudioCompressor`, ffmpeg → AAC/`.m4a`.
 - [Summarization](../contexts/summarization/CONTEXT.md) — `IAudioSummarizer` + background queue → Whisper worker.
 - [Persistence](../contexts/persistence/CONTEXT.md) — EF Core/SQLite, `AudioFile` entity.
+- [Frontend](../contexts/frontend/CONTEXT.md) — Next.js client in `web/`: upload, phase machine, thread, player.
 
 ## Relationships
 
@@ -39,6 +42,11 @@ document for this repo: every `/darkagent` run opens this file first.
   `IFileStore.OpenReadAsync` — it never receives the request's stream (request scope is gone).
 - **Summarization → Persistence**: the worker owns its own DI scope + `AppDbContext`
   (the request's scoped context is disposed by then).
+- **Frontend → API**: the browser uploads to `POST /api/audios` and polls
+  `GET /api/audios/{id}/summary`. Cross-origin, so the API carries a CORS policy
+  (`Options/CorsOptions.cs`); without an allowed origin every call dies pre-handler.
+- **Frontend → docs/DESIGN.md**: every visual value resolves to a token there. Design gaps are
+  fixed in that document (or a new `/darkdesign` pass), never improvised in TSX.
 
 ## Engineering policy (Conservador — dark-factory default)
 
@@ -58,7 +66,13 @@ document for this repo: every `/darkagent` run opens this file first.
 - **No new dependencies without an ADR.** Everything so far is BCL + EF Core + Swashbuckle.
   Prefer `IHttpClientFactory`, `System.Text.Json`, `System.Threading.Channels` over packages.
 - **Minimal diff during implementation**; improvement belongs to the quality batch (always runs).
+- **Frontend patterns** (`web/`): one file per `{component.x}` family in `components/ui/`,
+  composites in `components/transcription/`, all HTTP through `lib/api.ts`, all polling through
+  `lib/useTranscription.ts`, components are pure functions of props, UI copy Portuguese.
+  `docs/DESIGN.md` is the visual source of truth — no raw hex, no raw px, no undocumented state.
 - **Tests**: xUnit in `tests/AudioApi.Tests/`; every new unit gets a test file next to its peers.
+  Frontend: Vitest + React Testing Library in `web/`; the upload loading state is explicitly
+  test-covered (MR requirement).
   Tests must not require network or the VPS — the sandbox gate has neither.
   Sandbox gate must stay green.
 
