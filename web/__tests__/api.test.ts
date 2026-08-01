@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_BASE_URL, ApiError, getSummary, uploadAudio } from "@/lib/api";
 import type { AudioFileDto, AudioSummaryDto } from "@/lib/types";
 
-/** Minimal XMLHttpRequest double: the test drives progress, load and error by hand. */
 class FakeXhr {
   static instances: FakeXhr[] = [];
 
@@ -36,7 +35,6 @@ class FakeXhr {
     this.onabort?.();
   }
 
-  /** Simulates a real bytes-sent progress event. */
   emitProgress(loaded: number, total: number) {
     this.upload.onprogress?.({ lengthComputable: true, loaded, total } as ProgressEvent);
   }
@@ -170,8 +168,7 @@ describe("uploadAudio", () => {
 
   it("never echoes the framework's English 500 body into the Portuguese UI", async () => {
     const promise = uploadAudio(makeFile());
-    // Verbatim ASP.NET boilerplate: the exception handler writes valid ProblemDetails whose
-    // detail is English and says nothing useful. Trusting it would leak it onto the screen.
+
     FakeXhr.last().respond(
       500,
       JSON.stringify({

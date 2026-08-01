@@ -3,21 +3,15 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "./cn";
 
-/**
- * {component.dialog} + {component.scrim} — docs/DESIGN.md §7 Overlays.
- * Built on the native <dialog> element: focus trap, focus restore and Escape come from the
- * platform, so no dependency is added. {component.dialog-confirm} passes dismissable={false},
- * because a destructive action requires an explicit choice.
- */
 export type DialogWidth = 480 | 520 | 540;
 
 export interface DialogProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  /** Optional subline in {type.body} {colors.text.secondary}. */
+
   subtitle?: string;
-  /** Documented widths only — docs/DESIGN.md §4: 540 upload, 520 outcome, 480 confirm. */
+
   width?: DialogWidth;
   dismissable?: boolean;
   children: ReactNode;
@@ -46,7 +40,6 @@ export function Dialog({
       ref={ref}
       aria-label={title}
       onCancel={(event) => {
-        // Escape: the platform's own close request.
         event.preventDefault();
         if (dismissable) onClose();
       }}
@@ -54,13 +47,7 @@ export function Dialog({
     >
       {open ? (
         <>
-          {/* {component.scrim} — {colors.ink.base} at 42%, dismisses unless the dialog is a confirm. */}
           <div className="fixed inset-0 bg-rail/42" />
-          {/*
-            The centering layer is a later sibling of the scrim, so it paints on top and would
-            swallow every outside click. It lets them through and the card takes them back, which
-            keeps the documented click-outside-to-dismiss path alive without a z-index ladder.
-          */}
           <div
             className="pointer-events-none fixed inset-0 flex items-center justify-center p-4"
             onClick={dismissable ? onClose : undefined}
@@ -98,7 +85,6 @@ export function Dialog({
   );
 }
 
-/** {component.dialog-footer} — muted surface, top hairline, buttons right-aligned, primary last. */
 export function DialogFooter({
   note,
   className,
@@ -121,7 +107,6 @@ export function DialogFooter({
   );
 }
 
-/** Body wrapper — {spacing.6} sides, {spacing.4} row gap (docs/DESIGN.md §7). */
 export function DialogBody({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn("flex flex-col gap-4 px-6 pt-4", className)}>{children}</div>;
 }

@@ -6,19 +6,6 @@ import TranscriptionScreen from "@/app/page";
 import { getSummary, uploadAudio } from "@/lib/api";
 import type { AudioFileDto } from "@/lib/types";
 
-/**
- * T6 — the graded acceptance test of the MR: while `POST /api/audios` is in flight the screen must
- * show the loading component ({component.bubble-loading}, docs/DESIGN.md §7), and it must be gone
- * once the request resolves.
- *
- * The mocked boundary is `web/lib/api` — the only module that performs HTTP
- * (.claude/contexts/frontend/CONTEXT.md → "Frontend → API"). The upload promise is deferred and
- * resolved by hand, so "in flight" is a state the test controls, not a race it hopes for.
- *
- * Timers: the interaction runs on real timers (user-event drives its own event loop), and fake
- * timers are installed immediately before the upload resolves — that is the instant the poller's
- * interval is created, so it is born frozen and can never fire behind an assertion.
- */
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return { ...actual, uploadAudio: vi.fn(), getSummary: vi.fn() };
@@ -57,7 +44,6 @@ describe("loading state while the upload is in flight", () => {
     uploadAudioMock.mockImplementation(
       (_file, opts) =>
         new Promise<AudioFileDto>((resolve) => {
-          // Real bytes-sent progress, exactly as XMLHttpRequest.upload reports it.
           opts?.onProgress?.(42);
           resolveUpload = resolve;
         }),
@@ -67,7 +53,6 @@ describe("loading state while the upload is in flight", () => {
     const user = userEvent.setup();
     render(<TranscriptionScreen />);
 
-    // Before a file exists the canvas holds the empty state and nothing else.
     expect(screen.getByText("Nenhum áudio ainda")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 
@@ -75,7 +60,6 @@ describe("loading state while the upload is in flight", () => {
     await user.click(screen.getByRole("button", { name: "Transcrever" }));
     await user.click(screen.getByRole("button", { name: "Enviar e transcrever" }));
 
-    // ---- the upload promise is deliberately still unresolved here ----
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar).toBeInTheDocument();
     expect(progressBar).toHaveAttribute("aria-valuenow", "42");
@@ -86,7 +70,6 @@ describe("loading state while the upload is in flight", () => {
     expect(cta).toHaveAttribute("aria-busy", "true");
     expect(cta).toBeDisabled();
 
-    // ---- resolve it: the loading component must go ----
     vi.useFakeTimers();
     await act(async () => {
       resolveUpload?.(pendingUpload());
@@ -96,7 +79,6 @@ describe("loading state while the upload is in flight", () => {
     expect(screen.queryByText("Enviando áudio para POST /api/audios…")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Enviando…/ })).not.toBeInTheDocument();
 
-    // The thread keeps the upload row and moves on to the queue.
     expect(screen.getByText("201 Created")).toBeInTheDocument();
     expect(screen.getByText("Na fila para transcrição")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();

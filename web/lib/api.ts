@@ -1,21 +1,13 @@
-/**
- * The only module in the client that performs HTTP against the AudioApi.
- * Components and hooks call these functions; they never touch fetch/XHR themselves.
- * See .claude/contexts/frontend/CONTEXT.md → "Frontend → API".
- */
-
 import type { AudioFileDto, AudioSummaryDto } from "@/lib/types";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5218";
 
-/** ASP.NET Core ProblemDetails, as produced by Results.Problem in AudioEndpoints.cs. */
 interface ProblemDetails {
   title?: string | null;
   detail?: string | null;
   status?: number | null;
 }
 
-/** A failed API call, carrying the HTTP status (0 when the request never reached the server). */
 export class ApiError extends Error {
   readonly status: number;
 
@@ -33,7 +25,6 @@ const DECODE_ERROR =
 const VALIDATION_ERROR = "Arquivo inválido. Verifique o formato e o tamanho do áudio.";
 const ABORT_ERROR = "O envio foi cancelado.";
 
-/** Returns the trimmed string, or "" for anything that is not one. */
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -46,7 +37,6 @@ function parseProblemDetails(body: string): ProblemDetails | null {
       return parsed as ProblemDetails;
     }
   } catch {
-    // Not JSON — the caller falls back to a generic message.
   }
   return null;
 }
@@ -54,21 +44,11 @@ function parseProblemDetails(body: string): ProblemDetails | null {
 const SERVER_ERROR =
   "O servidor não conseguiu processar este áudio. Tente novamente em instantes.";
 
-/**
- * Picks the most specific Portuguese message available for a failed response.
- *
- * The body is only trusted for 4xx: those ProblemDetails are written by the API itself, in
- * Portuguese (see .claude/contexts/api/CONTEXT.md → "Validation error"). A 5xx body comes from
- * ASP.NET's own exception handler and reads "An error occurred while processing your request." —
- * English boilerplate that says nothing to the user and breaks the language of the interface.
- */
 function messageForStatus(status: number, body: string): string {
   if (status >= 500) return SERVER_ERROR;
 
   const problem = parseProblemDetails(body);
-  // `detail`/`title` are whatever crossed the wire. A proxy answering {"detail": 42} would make
-  // `.trim()` throw, and this runs outside any try — the promise would never settle and the
-  // screen would sit on the loading bubble forever.
+
   const fromBody = asText(problem?.detail) || asText(problem?.title);
   if (fromBody) return fromBody;
 
@@ -78,17 +58,10 @@ function messageForStatus(status: number, body: string): string {
 }
 
 export interface UploadOptions {
-  /** Real bytes-sent percentage (0..100) from XMLHttpRequest.upload.onprogress. */
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
 
-/**
- * POST {base}/api/audios as multipart/form-data with the field name `file`.
- *
- * Uses XMLHttpRequest on purpose: `fetch` cannot report upload progress, and docs/DESIGN.md
- * forbids fabricated percentages, so `upload.onprogress` is the only legitimate source.
- */
 export function uploadAudio(file: File, opts: UploadOptions = {}): Promise<AudioFileDto> {
   const { onProgress, signal } = opts;
 
@@ -141,7 +114,6 @@ export function uploadAudio(file: File, opts: UploadOptions = {}): Promise<Audio
   });
 }
 
-/** GET {base}/api/audios/{id}/summary — the poller's single call. */
 export async function getSummary(id: string, signal?: AbortSignal): Promise<AudioSummaryDto> {
   let response: Response;
   try {

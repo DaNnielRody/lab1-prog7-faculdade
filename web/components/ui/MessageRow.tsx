@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
-/**
- * {component.message-row} — docs/DESIGN.md §7 Thread.
- * Header: 22px glyph circle + author + timestamp; the bubble sits below at {spacing.2}.
- */
 export type MessageTone = "user" | "system" | "summary" | "error";
 
 const CIRCLE: Record<MessageTone, string> = {
@@ -18,7 +14,7 @@ export interface MessageRowProps {
   tone: MessageTone;
   author: string;
   timestamp: string;
-  /** Decorative glyph inside the 22px circle. */
+
   glyph?: ReactNode;
   className?: string;
   children: ReactNode;
@@ -35,7 +31,6 @@ export function MessageRow({
   return (
     <div className={cn("flex w-full max-w-bubble flex-col gap-2", className)}>
       <div className="flex items-center gap-2">
-        {/* 22px glyph circle — docs/DESIGN.md §6 Photography Geometry; off the 4px scale. */}
         <span
           aria-hidden="true"
           style={{ width: "22px", height: "22px" }}

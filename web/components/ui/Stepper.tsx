@@ -1,10 +1,5 @@
 import { cn } from "./cn";
 
-/**
- * {component.stepper} — docs/DESIGN.md §7 Status & Badges.
- * Labels quote the API vocabulary verbatim: "Enviado", "Na fila (Pending)",
- * "Transcrevendo (Processing)", "Concluído (Completed)".
- */
 export type StepState = "done" | "active" | "pending" | "failed";
 
 interface StepStyle {
@@ -59,7 +54,6 @@ export function Stepper({ steps, className }: StepperProps) {
         const style = STEP[step.state];
         return (
           <li key={step.id} className="flex items-center gap-2">
-            {/* 16px glyph circle — docs/DESIGN.md §7 stepper. */}
             <span
               aria-hidden="true"
               className={cn(

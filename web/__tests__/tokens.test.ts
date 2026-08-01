@@ -2,13 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-/**
- * The token values live in app/globals.css and their contrast ratios are quoted in comments
- * both there and in docs/DESIGN.md §2. A ratio in a comment with no assertion behind it goes
- * stale silently, so every number this project claims is locked here to two decimals.
- */
-
-// process.cwd() is web/ when vitest runs; import.meta.url is not a file: URL under jsdom.
 const css = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8");
 
 function token(name: string): string {

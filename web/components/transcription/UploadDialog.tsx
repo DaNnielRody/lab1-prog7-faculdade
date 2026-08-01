@@ -4,10 +4,6 @@ import { FileCard } from "@/components/ui/FileCard";
 import type { SelectedFile } from "@/lib/types";
 import { fileMeta } from "./format";
 
-/**
- * Upload dialog (540px) — docs/DESIGN.md §7 Overlays, Figma frame M1.
- * The last stop before `POST /api/audios`: it shows exactly what will be sent.
- */
 export interface UploadDialogProps {
   open: boolean;
   file: SelectedFile | null;

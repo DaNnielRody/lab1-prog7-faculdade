@@ -1,54 +1,41 @@
 @import "tailwindcss";
 
-/*
-  Design tokens — single source of truth: docs/DESIGN.md
-  Every value below is a token from that document. Never write a raw hex or px in a component.
-  Contrast ratios in the comments are measured (sRGB WCAG formula) and asserted in
-  web/__tests__/tokens.test.ts — a stale number there is a failing test, not a comment.
-*/
 @theme {
-  /* ---- Rail (dark chrome) — docs/DESIGN.md §2 Surface ---- */
   --color-rail: #0e0e10;
   --color-rail-raised: #1a1a1d;
   --color-rail-hairline: #2a2a2f;
-  --color-rail-text: #f2f2f3; /* 17.24:1 on rail */
-  --color-rail-muted: #9a9aa3; /* 6.91:1 on rail */
+  --color-rail-text: #f2f2f3;
+  --color-rail-muted: #9a9aa3;
 
-  /* ---- Light surfaces ---- */
   --color-canvas: #ffffff;
   --color-surface-muted: #f7f7f5;
   --color-hairline: #e4e4e1;
   --color-hairline-strong: #cfcfcb;
   --color-surface-disabled: #ededea;
 
-  /* ---- Text ---- */
-  --color-text: #17171a; /* 17.89:1 on canvas */
-  --color-text-secondary: #6b6b72; /* 5.29:1 on canvas, 4.93:1 on muted */
-  --color-text-disabled: #9a9aa3; /* disabled controls only — 2.79:1 */
+  --color-text: #17171a;
+  --color-text-secondary: #6b6b72;
+  --color-text-disabled: #9a9aa3;
   --color-text-inverse: #ffffff;
 
-  /* ---- Brand: a pair, split by role (docs/DESIGN.md §2) ---- */
-  --color-brand: #ff5a1f; /* graphics only — 3.12:1 on canvas */
+  --color-brand: #ff5a1f;
   --color-brand-pressed: #ec4c17;
-  --color-brand-text: #b23a0e; /* text/glyph orange — 5.99:1 on canvas */
+  --color-brand-text: #b23a0e;
   --color-brand-soft: #fff1ea;
 
-  /* ---- Semantic ---- */
-  --color-success: #177247; /* 5.29:1 on its soft tint */
+  --color-success: #177247;
   --color-success-soft: #e4f6ec;
-  --color-danger: #c4271c; /* 5.03:1 on its soft tint */
+  --color-danger: #c4271c;
   --color-danger-soft: #fdecea;
   --color-danger-border: #f6d2ce;
-  --color-info: #3f4ea8; /* 6.35:1 on its soft tint */
+  --color-info: #3f4ea8;
   --color-info-soft: #eceefb;
   --color-warning: #8a5a02;
   --color-warning-soft: #fdf3e0;
 
-  /* ---- Focus ---- */
-  --color-focus: #b23a0e; /* 5.99:1 on canvas */
-  --color-focus-dark: #ff8c5a; /* 8.4:1 on rail */
+  --color-focus: #b23a0e;
+  --color-focus-dark: #ff8c5a;
 
-  /* ---- Type scale — docs/DESIGN.md §3 ---- */
   --text-display: 28px;
   --text-display--line-height: 34px;
   --text-title: 19px;
@@ -69,28 +56,19 @@
   --text-mono: 11px;
   --text-mono--line-height: 17px;
 
-  /* ---- Fonts (bound to next/font variables in app/layout.tsx) ---- */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 
-  /* ---- Radius — docs/DESIGN.md §6. Four values, nothing else. ---- */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
 
-  /* ---- Elevation — docs/DESIGN.md §5. One shadow, for the dialog. ---- */
   --shadow-dialog: 0 18px 44px -6px rgb(0 0 0 / 0.22);
 
-  /* ---- Layout ---- */
   --spacing-rail: 240px;
   --spacing-panel: 320px;
   --spacing-bubble: 624px;
 }
-
-/*
-  Spacing intentionally uses Tailwind's default 4px scale: p-1=4px … p-12=48px maps 1:1 onto
-  {spacing.1}…{spacing.12} in docs/DESIGN.md §4. No custom spacing namespace is declared.
-*/
 
 html,
 body {
@@ -104,7 +82,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Focus ring — docs/DESIGN.md §7: never remove the outline without replacing it. */
 :focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;

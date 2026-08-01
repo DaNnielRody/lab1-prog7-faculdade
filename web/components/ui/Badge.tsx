@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
-/**
- * {component.badge-mono} / {component.badge-success} — docs/DESIGN.md §7.
- * Mono because the content is data the API produced verbatim (§3 Principles).
- */
 export type BadgeTone = "neutral" | "success" | "brand";
 
 const TONE: Record<BadgeTone, string> = {

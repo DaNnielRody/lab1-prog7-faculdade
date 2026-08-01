@@ -4,15 +4,11 @@ import { useRef, useState, type DragEvent } from "react";
 import { Button } from "./Button";
 import { cn } from "./cn";
 
-/**
- * {component.dropzone} / {component.dropzone-dragover} — docs/DESIGN.md §7 Inputs & Forms.
- * The accepted extensions mirror the API's `Upload:AllowedExtensions`.
- */
 export const ACCEPTED_EXTENSIONS = ".mp3,.wav,.ogg,.flac,.m4a,.aac,.webm";
 
 export interface DropzoneProps {
   onFile: (file: File) => void;
-  /** Helper line under the headline — extensions plus the size ceiling. */
+
   hint?: string;
   disabled?: boolean;
   className?: string;
@@ -58,7 +54,6 @@ export function Dropzone({
         className,
       )}
     >
-      {/* 36px glyph circle — docs/DESIGN.md §7 dropzone. */}
       <span
         aria-hidden="true"
         className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-body text-brand-text"

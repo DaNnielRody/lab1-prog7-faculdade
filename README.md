@@ -48,8 +48,11 @@ escolhidas, alternativas rejeitadas e o que ficou de fora — está em
 O limite de 500 caracteres é garantido em três camadas independentes: no worker, na API
 (`SummaryTruncator.Clamp`, coberto por testes) e na coluna do banco (`HasMaxLength(500)`).
 
-A sumarização vem **desligada** (`Summarization:Enabled = false`) para que `dotnet test` e o CI
-nunca dependam de rede. Para ligar, veja
+**No Docker Compose a sumarização já vem ligada**: `docker compose up --build` sobe a API e o
+worker juntos, e o worker baixa o modelo sozinho na primeira execução.
+
+Rodando pelo `dotnet run`, ela vem **desligada** (`Summarization:Enabled = false`) para que
+`dotnet test` e o CI nunca dependam de rede nem de um worker de pé. Para ligar nesse modo, veja
 [`worker/audio-summary-worker/README.md`](worker/audio-summary-worker/README.md).
 
 ### Visão de arquitetura
@@ -115,8 +118,9 @@ npm run build
 
 - **.NET 10 SDK** (testado com `10.0.109`).
 - **ffmpeg** disponível no `PATH` (usado para comprimir os áudios para AAC).
-- Opcional: **Docker** + **Docker Compose** (a imagem já instala o `ffmpeg`).
-- Opcional (só para o resumo): o **worker Whisper** rodando e alcançável — veja
+- **Docker** + **Docker Compose** — o caminho mais simples: sobe API e worker juntos, com o
+  resumo funcionando, sem precisar de .NET nem de `ffmpeg` na máquina.
+- Só para o resumo pelo `dotnet run`: o **worker Whisper** de pé — veja
   [`worker/audio-summary-worker/README.md`](worker/audio-summary-worker/README.md). Sem ele a API
   funciona normalmente e os áudios ficam com `summaryStatus: "Disabled"`.
 
@@ -178,13 +182,28 @@ curl http://localhost:5218/api/audios
 docker compose up --build
 ```
 
+Sobe **dois** serviços: a API e o worker Whisper que gera os resumos. A sumarização já vem
+**ligada** nesse modo — não há passo manual, chave nem máquina externa.
+
 A API fica disponível em **http://localhost:8080** (Swagger em
 http://localhost:8080/swagger — o compose usa `ASPNETCORE_ENVIRONMENT=Development`).
+O worker não é exposto ao host: só a API fala com ele, pela rede interna do compose.
+
+> **Primeira execução é lenta.** A imagem do worker instala o `faster-whisper` e, ao subir, baixa
+> os pesos do modelo `tiny` (~75 MB). Eles ficam no volume `whisper-models`, então da segunda vez
+> em diante o worker sobe offline. A API espera o `/health` do worker antes de aceitar tráfego.
 
 Os dados são persistidos em volumes nomeados:
 
 - `audio-data` → banco SQLite (`/app/data`)
 - `audio-files` → arquivos de áudio (`/app/filestore`)
+- `whisper-models` → pesos do modelo (baixados uma vez)
+
+Dá para trocar o modelo sem editar o compose (`base`, `small`… são mais precisos e mais lentos):
+
+```bash
+WHISPER_MODEL=base docker compose up --build
+```
 
 Exemplo de upload contra o container:
 

@@ -1,13 +1,8 @@
 import { cn } from "./cn";
 
-/**
- * {component.file-card} — docs/DESIGN.md §7 Inputs & Forms.
- * The name column carries min-width: 0 and truncates: it must never push the dismiss control
- * out of the card (§8 Do 8).
- */
 export interface FileCardProps {
   name: string;
-  /** e.g. "3,4 MB · WAV · 2:40" — {type.caption} metadata line. */
+
   meta: string;
   onDismiss?: () => void;
   dismissLabel?: string;
@@ -28,7 +23,6 @@ export function FileCard({
         className,
       )}
     >
-      {/* 34px icon tile — docs/DESIGN.md §7; off the 4px scale. */}
       <span
         aria-hidden="true"
         style={{ width: "34px", height: "34px" }}

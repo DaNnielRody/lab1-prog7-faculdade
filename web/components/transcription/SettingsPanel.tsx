@@ -10,24 +10,8 @@ import { cn } from "@/components/ui/cn";
 import type { Phase, SelectedFile } from "@/lib/types";
 import { fileMeta } from "./format";
 
-/**
- * {component.settings-panel} — docs/DESIGN.md §7 Panel & Player.
- * 320px muted surface with a left hairline. The field order is fixed by §7:
- * header → Áudio → Idioma → Resumo → Estado → spacer → CTA → helper line.
- */
-
-/**
- * `POST /api/audios` takes a single `file` part and no language parameter
- * (src/AudioApi/Endpoints/AudioEndpoints.cs); the worker detects the language itself and returns
- * it in `summaryLanguage`.
- *
- * So the field offers exactly the one value docs/DESIGN.md §7 specifies, and is disabled. Listing
- * "Português", "Inglês", "Espanhol" would let a user pick a language the request cannot carry —
- * the same broken promise §7 removed from the rail, moved into a form control.
- */
 const LANGUAGE_OPTIONS = [{ value: "auto", label: "Detectar automaticamente" }];
 
-/** Labels quote the API vocabulary verbatim — docs/DESIGN.md §7 {component.stepper}. */
 const STEP_LABELS = [
   "Enviado",
   "Na fila (Pending)",
@@ -35,20 +19,13 @@ const STEP_LABELS = [
   "Concluído (Completed)",
 ] as const;
 
-/**
- * One column per phase. `disabled` is spelled out in §7: "Enviado" done and the remaining steps
- * pending, with no active step — because the server stored the file and simply does not summarize.
- */
 const STEP_STATES: Record<Phase, readonly StepState[]> = {
   idle: ["pending", "pending", "pending", "pending"],
   uploading: ["active", "pending", "pending", "pending"],
   pending: ["done", "active", "pending", "pending"],
   processing: ["done", "done", "active", "pending"],
   completed: ["done", "done", "done", "done"],
-  // "Na fila" is the only step a failure is known to have passed: the upload returned 201 and the
-  // audio was queued. Whether transcription ever started is not known here, so it stays pending
-  // and the failure is attributed to the queue step. Claiming "Processing" happened would be the
-  // panel inventing history the API never reported (§8 Don't 3).
+
   failed: ["done", "failed", "pending", "pending"],
   disabled: ["done", "pending", "pending", "pending"],
 };
@@ -65,8 +42,7 @@ function ctaFor(phase: Phase, hasFile: boolean): CtaSpec {
       return { label: "Transcrever", loading: false, disabled: !hasFile };
     case "uploading":
       return { label: "Enviando…", loading: true, disabled: false };
-    // Waiting on the server, not sending bytes: docs/DESIGN.md §7 drops the fill to
-    // {colors.surface.disabled} here — the button is no longer the thing making progress.
+
     case "pending":
     case "processing":
       return { label: "Transcrevendo…", loading: true, disabled: true };
@@ -78,7 +54,6 @@ function ctaFor(phase: Phase, hasFile: boolean): CtaSpec {
   }
 }
 
-/** {type.caption} helper under the CTA — docs/DESIGN.md §7, centered and secondary. */
 function helperFor(phase: Phase, hasFile: boolean): string {
   switch (phase) {
     case "idle":
@@ -141,7 +116,6 @@ export function SettingsPanel({
       )}
     >
       <h2 className="text-heading font-semibold text-text">Configurações</h2>
-
       <FieldGroup label="ÁUDIO">
         {file ? (
           <FileCard
@@ -153,9 +127,7 @@ export function SettingsPanel({
           <Dropzone onFile={onSelectFile} disabled={phase === "uploading"} />
         )}
       </FieldGroup>
-
       <Select label="IDIOMA" options={LANGUAGE_OPTIONS} defaultValue="auto" disabled />
-
       <FieldGroup label="RESUMO">
         <div className="flex flex-col gap-2 rounded-sm border border-hairline bg-canvas p-3">
           <div className="flex items-center gap-2">
@@ -169,8 +141,6 @@ export function SettingsPanel({
           </span>
         </div>
       </FieldGroup>
-
-      {/* "Estado" appears only once an upload exists — docs/DESIGN.md §7 field order. */}
       {phase === "idle" ? null : (
         <FieldGroup label="ESTADO">
           <Stepper steps={steps} />
@@ -178,7 +148,6 @@ export function SettingsPanel({
       )}
 
       <div className="flex-1" />
-
       <div className="flex flex-col gap-3">
         <Button
           fullWidth

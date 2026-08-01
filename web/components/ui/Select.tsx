@@ -3,10 +3,6 @@
 import { useId, type SelectHTMLAttributes } from "react";
 import { cn } from "./cn";
 
-/**
- * {component.select} wrapped in a {component.field-group} — docs/DESIGN.md §7.
- * Every panel control carries a {type.overline} label (§8 Do 4).
- */
 export interface SelectOption {
   value: string;
   label: string;

@@ -1,13 +1,6 @@
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogBody, DialogFooter } from "@/components/ui/Dialog";
 
-/**
- * {component.dialog-confirm} (480px) — docs/DESIGN.md §7 Overlays, Figma frame M4.
- *
- * Not dismissable: a destructive action requires an explicit choice, so neither the scrim nor
- * Escape closes it. The consequence copy states what is *not* destroyed, because "Recomeçar" is
- * local-only — it clears the screen, never the server.
- */
 export interface ConfirmRestartDialogProps {
   open: boolean;
   onCancel: () => void;
@@ -25,7 +18,6 @@ export function ConfirmRestartDialog({ open, onCancel, onConfirm }: ConfirmResta
     >
       <DialogBody>
         <div className="flex items-start gap-4">
-          {/* 40px warning circle — docs/DESIGN.md §7 {component.dialog-confirm}. */}
           <span
             aria-hidden="true"
             className="flex size-10 shrink-0 items-center justify-center rounded-full bg-warning-soft text-body text-warning"

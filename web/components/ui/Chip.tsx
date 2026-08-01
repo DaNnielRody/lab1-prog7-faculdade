@@ -1,9 +1,5 @@
 import { cn } from "./cn";
 
-/**
- * {component.status-chip} — docs/DESIGN.md §7 Status & Badges.
- * `disabled` is the API's `Summarization:Enabled = false`: neutral, never red (§7).
- */
 export type ChipVariant =
   | "idle"
   | "uploading"
@@ -13,7 +9,6 @@ export type ChipVariant =
   | "disabled";
 
 interface ChipStyle {
-  /** Portuguese copy, verbatim from the §7 table. */
   label: string;
   surface: string;
   ink: string;
@@ -61,7 +56,7 @@ const CHIP: Record<ChipVariant, ChipStyle> = {
 
 export interface ChipProps {
   variant: ChipVariant;
-  /** Overrides the canonical copy only when the screen has a more specific literal. */
+
   label?: string;
   className?: string;
 }
@@ -77,7 +72,6 @@ export function Chip({ variant, label, className }: ChipProps) {
         className,
       )}
     >
-      {/* 6px dot — docs/DESIGN.md §7; 1.5 on the 4px scale. */}
       <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", style.dot)} />
       {label ?? style.label}
     </span>

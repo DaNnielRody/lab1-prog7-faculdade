@@ -45,7 +45,6 @@ function summaryDto(status: SummaryStatus, overrides: Partial<AudioSummaryDto> =
 
 const file = () => new File(["conteudo"], "aula.mp3", { type: "audio/mpeg" });
 
-/** Runs one poller tick (2s) and flushes the promise it starts. */
 async function tick(times = 1) {
   for (let i = 0; i < times; i += 1) {
     await act(async () => {
@@ -334,11 +333,6 @@ describe("useTranscription", () => {
     expect(uploadAudioMock).not.toHaveBeenCalled();
   });
 
-  /**
-   * A session is a generation, not just an interval. Between start() and the upload resolving
-   * there is no poller yet, so reset()/unmount in that window leaves nothing for the pending
-   * continuation to notice — it would revive a cleared screen or start a poller nobody can stop.
-   */
   describe("a session that ended never comes back", () => {
     it("drops an upload that resolves after reset()", async () => {
       let release!: (dto: AudioFileDto) => void;
@@ -382,8 +376,6 @@ describe("useTranscription", () => {
       await act(async () => { release(audioDto("Pending")); await started; });
       await tick(5);
 
-      // Without the generation guard this leaks an interval that outlives the component and
-      // hits the API every 2s for the life of the page.
       expect(getSummaryMock).not.toHaveBeenCalled();
     });
 
@@ -402,7 +394,6 @@ describe("useTranscription", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); });
       act(() => result.current.reset());
 
-      // The first session's poll answers "Completed" long after the user cleared the screen.
       await act(async () => {
         releaseSummary(summaryDto("Completed"));
         await Promise.resolve();

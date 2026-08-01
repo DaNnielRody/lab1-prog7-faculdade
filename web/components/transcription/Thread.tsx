@@ -10,18 +10,9 @@ import { cn } from "@/components/ui/cn";
 import type { AudioFileDto, AudioSummaryDto, Phase, SelectedFile, ThreadMessage } from "@/lib/types";
 import { fileMeta, formatTimestamp, summaryFacts } from "./format";
 
-/**
- * The thread — docs/DESIGN.md §7 Thread, .claude/contexts/frontend/CONTEXT.md → "Thread".
- *
- * It is a state log, not a chat: one {component.message-row} per real backend transition, taken
- * from `messages` (append-only). Rendering from the log rather than from the current phase is what
- * keeps the history honest — a session that went `Pending` → `Completed` never shows a
- * `Processing` row it did not live through.
- */
-
 export interface ThreadProps {
   phase: Phase;
-  /** 0..100 real bytes-sent percentage; only meaningful while the phase is `uploading`. */
+
   progress: number;
   file: SelectedFile | null;
   audio: AudioFileDto | null;
@@ -33,7 +24,6 @@ export interface ThreadProps {
   className?: string;
 }
 
-/** 16px inline glyph circle of {component.bubble-loading} — docs/DESIGN.md §4 Component Metrics. */
 function LoadingGlyph({ tone }: { tone: "brand" | "info" }) {
   return (
     <span
@@ -132,10 +122,6 @@ export function Thread({
                   Processing
                 </span>
               </div>
-              {/*
-                No `value`: the API reports no percentage for transcription, and docs/DESIGN.md
-                §8 Don't 3 forbids fabricating one. The bar runs indeterminate.
-              */}
               <ProgressBar tone="info" label="Transcrição em andamento" />
               <span className="text-caption text-text-secondary">
                 O servidor transcreve fora da requisição; o resumo chega nesta conversa.
@@ -205,11 +191,6 @@ export function Thread({
             timestamp={formatTimestamp(message.createdAt)}
             glyph="○"
           >
-            {/*
-              `Disabled` is not a failure — the upload succeeded and the file is stored, the server
-              simply does not summarize. Neutral bubble, never red (docs/DESIGN.md §7
-              {component.status-chip-disabled}).
-            */}
             <Bubble>
               <div className="flex min-w-0 items-center gap-2">
                 <span className="min-w-0 text-body text-text">
@@ -255,7 +236,6 @@ export function Thread({
                     {progress}%
                   </span>
                 </div>
-                {/* Determinate: the percentage is real bytes from XMLHttpRequest.upload. */}
                 <ProgressBar value={progress} tone="brand" label="Progresso do envio" />
                 <span className="text-caption text-text-secondary">
                   O arquivo é enviado como multipart/form-data no campo <code>file</code>.
