@@ -77,6 +77,40 @@ nunca dependam de rede. Para ligar, veja
 | GET    | `/api/audios`                 | Lista todos os registros.                        |
 | GET    | `/health`                     | Verificação de saúde.                            |
 
+### Frontend (`web/`)
+
+Aplicação **Next.js (App Router) + TypeScript + Tailwind v4** que consome esta API: envia o áudio,
+mostra o estado de carregamento durante o upload e exibe o resumo (ou o erro) na mesma tela.
+
+O visual é especificado em [`docs/DESIGN.md`](docs/DESIGN.md) — todo valor visual do código resolve
+para um token declarado em `web/app/globals.css`. O Figma de referência está linkado no topo do
+DESIGN.md.
+
+```bash
+# 1. suba a API (porta 5218)
+dotnet run --project src/AudioApi
+
+# 2. em outro terminal, suba o front (porta 3000)
+cd web
+npm install
+npm run dev
+```
+
+Abra <http://localhost:3000>. A API precisa permitir a origem do front — a seção `Cors` do
+`appsettings.json` já libera `http://localhost:3000`. Para apontar para outra API:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080 npm run dev
+```
+
+Testes e build do front:
+
+```bash
+cd web
+npm run test:run   # Vitest + React Testing Library
+npm run build
+```
+
 ## Pré-requisitos
 
 - **.NET 10 SDK** (testado com `10.0.109`).
