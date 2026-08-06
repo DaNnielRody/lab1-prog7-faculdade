@@ -1,5 +1,8 @@
 **/bin/
 **/obj/
+**/node_modules/
+web/.next/
+web/out/
 **/filestore/
 **/data/
 **/.vs/

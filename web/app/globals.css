@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@theme {
+  --color-rail: #0e0e10;
+  --color-rail-raised: #1a1a1d;
+  --color-rail-hairline: #2a2a2f;
+  --color-rail-text: #f2f2f3;
+  --color-rail-muted: #9a9aa3;
+
+  --color-canvas: #ffffff;
+  --color-surface-muted: #f7f7f5;
+  --color-hairline: #e4e4e1;
+  --color-hairline-strong: #cfcfcb;
+  --color-surface-disabled: #ededea;
+
+  --color-text: #17171a;
+  --color-text-secondary: #6b6b72;
+  --color-text-disabled: #9a9aa3;
+  --color-text-inverse: #ffffff;
+
+  --color-brand: #ff5a1f;
+  --color-brand-pressed: #ec4c17;
+  --color-brand-text: #b23a0e;
+  --color-brand-soft: #fff1ea;
+
+  --color-success: #177247;
+  --color-success-soft: #e4f6ec;
+  --color-danger: #c4271c;
+  --color-danger-soft: #fdecea;
+  --color-danger-border: #f6d2ce;
+  --color-info: #3f4ea8;
+  --color-info-soft: #eceefb;
+  --color-warning: #8a5a02;
+  --color-warning-soft: #fdf3e0;
+
+  --color-focus: #b23a0e;
+  --color-focus-dark: #ff8c5a;
+
+  --text-display: 28px;
+  --text-display--line-height: 34px;
+  --text-title: 19px;
+  --text-title--line-height: 28px;
+  --text-heading: 16px;
+  --text-heading--line-height: 24px;
+  --text-body-lg: 14px;
+  --text-body-lg--line-height: 23px;
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 18px;
+  --text-caption: 11px;
+  --text-caption--line-height: 17px;
+  --text-overline: 11px;
+  --text-overline--line-height: 17px;
+  --text-overline--letter-spacing: 0.6px;
+  --text-mono: 11px;
+  --text-mono--line-height: 17px;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --shadow-dialog: 0 18px 44px -6px rgb(0 0 0 / 0.22);
+
+  --spacing-rail: 240px;
+  --spacing-panel: 320px;
+  --spacing-bubble: 624px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.on-rail :focus-visible {
+  outline-color: var(--color-focus-dark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

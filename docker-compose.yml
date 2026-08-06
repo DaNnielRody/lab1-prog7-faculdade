@@ -1,3 +1,14 @@
+# Sobe o projeto inteiro: a API e o worker Whisper que gera os resumos.
+#
+#   docker compose up --build
+#
+# Tudo roda local, em container. O worker baixa os pesos do modelo (`tiny`, ~75 MB) na primeira
+# execução e os guarda no volume `whisper-models`, então a partir da segunda vez ele sobe offline.
+# Nenhuma chave, nenhuma máquina externa, nenhum serviço pago — a mesma sequência funciona em
+# qualquer máquina com Docker.
+#
+# O gate de sandbox (`docker-compose.dark-factory.yml`) é outro arquivo e continua sem rede de
+# propósito: os testes nunca dependem do worker.
 services:
   audio-api:
     build:
@@ -12,11 +23,61 @@ services:
       ConnectionStrings__Default: "Data Source=/app/data/audios.db"
       Storage__LocalPath: /app/filestore
       Upload__MaxSizeBytes: "52428800"
+      # O worker é um serviço deste compose, alcançável pelo nome.
+      Summarization__Enabled: "true"
+      Summarization__Endpoint: http://audio-summary-worker:9000
+      Summarization__ApiKey: ${WORKER_API_KEY:-prog7-local-dev}
+      Summarization__TimeoutSeconds: "300"
     volumes:
       - audio-data:/app/data
       - audio-files:/app/filestore
+    depends_on:
+      audio-summary-worker:
+        # Espera o worker responder no /health. Sem isso, os primeiros áudios enfileirados
+        # falhariam com erro de conexão enquanto o modelo ainda estivesse carregando.
+        condition: service_healthy
+    restart: unless-stopped
+
+  audio-summary-worker:
+    build:
+      context: ./worker/audio-summary-worker
+      dockerfile: Dockerfile
+    image: audio-summary-worker:latest
+    container_name: prog7-audio-summary-worker
+    # Sem `ports`: só a API fala com o worker, pela rede interna do compose. Nada exposto ao host.
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-tiny}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER_DEVICE: cpu
+      WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-4}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-1}
+      WORKER_API_KEY: ${WORKER_API_KEY:-prog7-local-dev}
+      MAX_CHARS_CEILING: ${MAX_CHARS_CEILING:-500}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-67108864}
+      OMP_NUM_THREADS: ${WHISPER_CPU_THREADS:-4}
+    volumes:
+      # Os pesos do modelo persistem entre execuções — baixa uma vez só.
+      - whisper-models:/models
+    tmpfs:
+      - /tmp:size=512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # A primeira subida baixa o modelo; as seguintes leem do volume.
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 3G
     restart: unless-stopped
 
 volumes:
   audio-data:
   audio-files:
+  whisper-models:

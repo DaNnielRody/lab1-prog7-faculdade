@@ -27,8 +27,10 @@ Methodology of `grill-with-docs` (invoke via the Skill tool) against the context
   State the answer and the source; do not ask.
 - **Escalate to the human only on product ambiguity** — max **3** `AskUserQuestion` calls.
 - Write decisions back into the relevant `CONTEXT.md` **inline, as they land**, not at the end.
-- `docs/DESIGN.md` does not exist in this repo (no frontend). If it ever appears, design questions
-  are answered there and are never re-grilled.
+- **`docs/DESIGN.md` exists** (produced by `/darkdesign`). Design questions are answered there and
+  are **never re-grilled**. Gaps found during a run are written back into it in the same turn
+  (`df-design` owns the edit); structural gaps go back to `/darkdesign`. Human visual feedback is
+  also appended to `~/.claude/skills/darkdesign/HUMAN-INFERENCE.md`.
 
 ## 2. `/to-prd`
 
@@ -56,8 +58,9 @@ the default branch, GitHub auto-closes `Closes #n` on merge — the
 ## 5. `/tdd` execution — batch dispatch
 
 Read each issue's spec **first** and decide which specialists it needs. Available agents:
-`df-architecture`, `df-backend`, `df-database`, `df-testing`, `df-quality`.
-There is no `df-frontend`/`df-design` — this repo has no frontend.
+`df-architecture`, `df-backend`, `df-database`, `df-frontend`, `df-design`, `df-testing`,
+`df-quality`. On UI work, `df-design` runs **before** `df-frontend` — code never precedes the
+token-resolved spec.
 
 Per issue:
 
@@ -82,6 +85,9 @@ semantic dedup → tech debt → performance). Then run the gate again.
 Scoped targets for the change:
 
 ```bash
+# frontend (when web/ changed)
+cd web && npm run test -- --run && npm run build && cd ..
+
 dotnet test --nologo
 
 docker compose -f docker-compose.dark-factory.yml up unit-tests \

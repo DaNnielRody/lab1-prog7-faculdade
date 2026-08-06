@@ -9,7 +9,7 @@ Files:
 - `src/AudioApi/Endpoints/AudioEndpoints.cs` — all `/api/audios` routes.
 - `src/AudioApi/Validation/AudioFileValidator.cs` — pre-transcode rejection.
 - `src/AudioApi/Dtos/AudioFileDto.cs`, `src/AudioApi/Dtos/AudioSummaryDto.cs`.
-- `src/AudioApi/Options/UploadOptions.cs`.
+- `src/AudioApi/Options/UploadOptions.cs`, `src/AudioApi/Options/CorsOptions.cs`.
 
 ## Language
 
@@ -38,6 +38,14 @@ its length, language, error, timestamp. Exists so a client can poll the summary 
 re-fetching all metadata.
 _Avoid_: SummaryResponse, TranscriptDto
 
+**CORS policy**:
+The named policy `CorsOptions.PolicyName` ("Frontend"), bound from the `Cors` section and applied
+with `app.UseCors(...)` before the endpoints. It allows only the origins listed in
+`Cors:AllowedOrigins` (default `http://localhost:3000`, the Next.js client), any header, any
+method — no wildcard, no credentials. Without an allowed origin the browser request dies before
+reaching a handler.
+_Avoid_: cors config, allow-all
+
 ## Relationships
 
 - An **Upload** produces exactly one **AudioFile** row and enqueues exactly one
@@ -57,6 +65,8 @@ _Avoid_: SummaryResponse, TranscriptDto
 | GET | `/api/audios/{id:guid}/download` | streams the stored `.m4a` / 404 |
 | GET | `/api/audios/{id:guid}/summary` | 200 `AudioSummaryDto` / 404 |
 | GET | `/health` | liveness |
+
+Todas as rotas respondem sob a política de CORS `Frontend` (origens de `Cors:AllowedOrigins`).
 
 ## Flagged ambiguities
 

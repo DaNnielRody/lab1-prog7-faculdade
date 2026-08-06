@@ -1,0 +1,63 @@
+# Gate de CI do repositório.
+#
+# O gate do sandbox (docker-compose.dark-factory.yml / Dockerfile.sandbox) NÃO é tocado aqui:
+# ele roda sem rede por design (cap_drop ALL, rede isolada, testes sem VPS), então não pode
+# executar `npm ci` nem baixar pacotes do registry. Por isso as suítes Vitest do `web/` rodam
+# neste workflow do GitHub Actions, e não dentro do sandbox.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # src/AudioApi/AudioApi.csproj: <TargetFramework>net10.0</TargetFramework> (não há global.json)
+          dotnet-version: '10.0.x'
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Test
+        run: dotnet test --nologo
+
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests (Vitest)
+        run: npm run test:run
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

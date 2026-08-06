@@ -15,11 +15,22 @@ builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(Stor
 builder.Services.Configure<UploadOptions>(builder.Configuration.GetSection(UploadOptions.SectionName));
 builder.Services.Configure<CompressionOptions>(builder.Configuration.GetSection(CompressionOptions.SectionName));
 builder.Services.Configure<SummarizationOptions>(builder.Configuration.GetSection(SummarizationOptions.SectionName));
+builder.Services.Configure<CorsOptions>(builder.Configuration.GetSection(CorsOptions.SectionName));
 
 var summarizationOptions = builder.Configuration.GetSection(SummarizationOptions.SectionName).Get<SummarizationOptions>()
     ?? new SummarizationOptions();
 
 var uploadOptions = builder.Configuration.GetSection(UploadOptions.SectionName).Get<UploadOptions>() ?? new UploadOptions();
+
+var corsOptions = builder.Configuration.GetSection(CorsOptions.SectionName).Get<CorsOptions>() ?? new CorsOptions();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(CorsOptions.PolicyName, policy => policy
+        .WithOrigins(corsOptions.AllowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
 
 var bodyLimit = uploadOptions.MaxSizeBytes + (1L * 1024 * 1024);
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = bodyLimit);
@@ -67,6 +78,8 @@ using (var scope = app.Services.CreateScope())
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+app.UseCors(CorsOptions.PolicyName);
 
 if (app.Environment.IsDevelopment())
 {
