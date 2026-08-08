@@ -9,22 +9,23 @@ namespace AudioApi.Summarization;
 
 public sealed class AudioSummaryBackgroundService : BackgroundService
 {
-    private const int MaxErrorChars = 1024;
-
     private readonly ISummaryQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SummarizationOptions _options;
+    private readonly IDbWriteGate _writeGate;
     private readonly ILogger<AudioSummaryBackgroundService> _logger;
 
     public AudioSummaryBackgroundService(
         ISummaryQueue queue,
         IServiceScopeFactory scopeFactory,
         IOptions<SummarizationOptions> options,
+        IDbWriteGate writeGate,
         ILogger<AudioSummaryBackgroundService> logger)
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
         _options = options.Value;
+        _writeGate = writeGate;
         _logger = logger;
     }
 
@@ -100,7 +101,7 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
 
         entity.SummaryStatus = SummaryStatus.Processing;
         entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
 
         var stopwatch = Stopwatch.StartNew();
 
@@ -131,7 +132,7 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
             entity.SummaryError = null;
             entity.SummaryStatus = SummaryStatus.Completed;
             entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct);
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
 
             _logger.LogInformation(
                 "Resumo de {AudioId} concluído em {ElapsedMs}ms ({SummaryChars} caracteres).",
@@ -143,12 +144,9 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
             _logger.LogError(ex, "Falha ao resumir {AudioId} após {ElapsedMs}ms.", audioId, stopwatch.ElapsedMilliseconds);
 
             entity.SummaryStatus = SummaryStatus.Failed;
-            entity.SummaryError = Truncate(ex.Message, MaxErrorChars);
+            entity.SummaryError = JobError.Clamp(ex.Message);
             entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
-            await db.SaveChangesAsync(CancellationToken.None);
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
         }
     }
-
-    private static string Truncate(string value, int maxChars) =>
-        value.Length <= maxChars ? value : value[..maxChars];
 }

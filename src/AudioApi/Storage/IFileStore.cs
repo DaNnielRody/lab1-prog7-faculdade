@@ -9,4 +9,6 @@ public interface IFileStore
     Task<StoredFile> SaveAsync(Guid id, string extension, Stream content, string baseUrl, CancellationToken ct = default);
 
     Task<FileContent?> OpenReadAsync(string storedFileName, string contentType, CancellationToken ct = default);
+
+    Task DeleteAsync(string storedFileName, CancellationToken ct = default);
 }

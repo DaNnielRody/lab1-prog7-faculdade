@@ -13,7 +13,10 @@ public sealed record AudioFileDto(
     SummaryStatus SummaryStatus,
     string? Summary,
     string? SummaryLanguage,
-    DateTime? SummaryUpdatedAtUtc)
+    DateTime? SummaryUpdatedAtUtc,
+    ProcessingStatus ProcessingStatus,
+    string? ProcessingError,
+    DateTime? ProcessingUpdatedAtUtc)
 {
     public static AudioFileDto FromEntity(AudioFile e) => new(
         e.Id,
@@ -26,5 +29,8 @@ public sealed record AudioFileDto(
         e.SummaryStatus,
         e.Summary,
         e.SummaryLanguage,
-        e.SummaryUpdatedAtUtc);
+        e.SummaryUpdatedAtUtc,
+        e.ProcessingStatus,
+        e.ProcessingError,
+        e.ProcessingUpdatedAtUtc);
 }

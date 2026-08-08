@@ -10,7 +10,9 @@ public sealed record AudioSummaryDto(
     int MaxSummaryLength,
     string? Language,
     string? Error,
-    DateTime? UpdatedAtUtc)
+    DateTime? UpdatedAtUtc,
+    ProcessingStatus ProcessingStatus,
+    string? ProcessingError)
 {
     public static AudioSummaryDto FromEntity(AudioFile e, int maxSummaryLength) => new(
         e.Id,
@@ -20,5 +22,7 @@ public sealed record AudioSummaryDto(
         maxSummaryLength,
         e.SummaryLanguage,
         e.SummaryError,
-        e.SummaryUpdatedAtUtc);
+        e.SummaryUpdatedAtUtc,
+        e.ProcessingStatus,
+        e.ProcessingError);
 }

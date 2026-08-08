@@ -54,4 +54,19 @@ public class LocalFileStore : IFileStore
         Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         return Task.FromResult<FileContent?>(new FileContent(stream, contentType));
     }
+
+    public Task DeleteAsync(string storedFileName, CancellationToken ct = default)
+    {
+        var safeName = Path.GetFileName(storedFileName);
+        var fullPath = Path.Combine(_rootPath, safeName);
+
+        if (!File.Exists(fullPath))
+        {
+            return Task.CompletedTask;
+        }
+
+        File.Delete(fullPath);
+        _logger.LogInformation("Deleted file {StoredFileName} at {Path}", safeName, fullPath);
+        return Task.CompletedTask;
+    }
 }
