@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { API_BASE_URL, ApiError, getSummary, uploadAudio } from "@/lib/api";
+import { API_BASE_URL, ApiError, getSummary, listAudios, uploadAudio } from "@/lib/api";
 import type { AudioFileDto, AudioSummaryDto } from "@/lib/types";
 
 class FakeXhr {
@@ -257,5 +257,50 @@ describe("getSummary", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
     await expect(getSummary(summaryDto.id)).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("listAudios", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gets /api/audios and parses the AudioFileDto list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify([audioFileDto]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listAudios()).resolves.toEqual([audioFileDto]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_BASE_URL}/api/audios`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("maps a 500 to an ApiError carrying the Portuguese server message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => "<html>boom</html>",
+      }),
+    );
+
+    const error = await listAudios().catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(500);
+    expect((error as ApiError).message).toBe(
+      "O servidor não conseguiu processar este áudio. Tente novamente em instantes.",
+    );
+  });
+
+  it("maps a rejected fetch to an ApiError with status 0", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(listAudios()).rejects.toMatchObject({ name: "ApiError", status: 0 });
   });
 });

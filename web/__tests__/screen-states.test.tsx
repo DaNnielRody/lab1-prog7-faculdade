@@ -3,16 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import TranscriptionScreen from "@/app/page";
-import { getSummary, uploadAudio } from "@/lib/api";
+import { getSummary, listAudios, uploadAudio } from "@/lib/api";
 import type { AudioFileDto, AudioSummaryDto, SummaryStatus } from "@/lib/types";
 
+// `listAudios` é mockado porque a tela passou a carregar a lista de áudios processados ao montar.
+// Sem o mock, o jsdom faria uma chamada de rede real à API — estes testes são sobre o thread.
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, uploadAudio: vi.fn(), getSummary: vi.fn() };
+  return { ...actual, uploadAudio: vi.fn(), getSummary: vi.fn(), listAudios: vi.fn() };
 });
 
 const uploadAudioMock = vi.mocked(uploadAudio);
 const getSummaryMock = vi.mocked(getSummary);
+const listAudiosMock = vi.mocked(listAudios);
 
 const AUDIO_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 const SUMMARY_TEXT =
@@ -87,6 +90,8 @@ describe("screen states", () => {
   beforeEach(() => {
     uploadAudioMock.mockReset();
     getSummaryMock.mockReset();
+    listAudiosMock.mockReset();
+    listAudiosMock.mockResolvedValue([]);
   });
 
   afterEach(() => {
