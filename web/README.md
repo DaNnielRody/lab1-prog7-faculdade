@@ -8,7 +8,6 @@ servidor e leia o resumo de até 500 caracteres — tudo na mesma conversa.
 - **Design**: [`../docs/DESIGN.md`](../docs/DESIGN.md) é a fonte da verdade visual. Todo valor
   visual do código resolve para um token declarado em [`app/globals.css`](app/globals.css).
   Gap no design volta para o documento, nunca é improvisado no TSX.
-- **Contexto do agente**: [`../.claude/contexts/frontend/CONTEXT.md`](../.claude/contexts/frontend/CONTEXT.md).
 
 ## Rodar
 

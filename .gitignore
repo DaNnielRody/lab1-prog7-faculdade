@@ -43,3 +43,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Ferramental de agente e artefatos de planejamento — locais, fora do repositório
+.claude/
+docs/prd/
