@@ -19,6 +19,12 @@ export interface ThreadProps {
   summary: AudioSummaryDto | null;
   error: string | null;
   messages: ThreadMessage[];
+  /**
+   * Audios the server already holds, oldest first. They are rendered as ordinary messages above
+   * the current session — this screen is a conversation, so an audio the server processed is a
+   * message in it, not a second list with its own heading and borders.
+   */
+  processed: AudioFileDto[];
   onRetry: () => void;
   onSendAnother: () => void;
   className?: string;
@@ -46,11 +52,102 @@ export function Thread({
   summary,
   error,
   messages,
+  processed,
   onRetry,
   onSendAnother,
   className,
 }: ThreadProps) {
   const facts = summaryFacts(summary, audio);
+
+  /**
+   * One processed audio = one message in the conversation. Mirrors the Figma "Chat body"
+   * (node 5:47), which contains only messages — there is no list, no section heading and no
+   * bordered card anywhere in the design.
+   */
+  function renderProcessed(item: AudioFileDto) {
+    const at = formatTimestamp(new Date(item.createdAtUtc).getTime());
+    const name = item.originalFileName;
+
+    if (item.processingStatus === "Pending" || item.processingStatus === "Processing") {
+      return (
+        <MessageRow key={item.id} timestamp={at} tone="system" author="Sistema" glyph="○">
+          <Bubble>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate text-body text-text">
+                {name} — {item.processingStatus === "Processing" ? "comprimindo" : "na fila para compressão"}
+              </span>
+              <span className="ml-auto shrink-0 font-mono text-mono text-text-secondary">
+                {item.processingStatus}
+              </span>
+            </div>
+          </Bubble>
+        </MessageRow>
+      );
+    }
+
+    if (item.processingStatus === "Failed") {
+      return (
+        <MessageRow key={item.id} timestamp={at} tone="error" author="Sistema" glyph="✕">
+          <Bubble variant="error" accent="danger">
+            <span className="text-body font-semibold text-danger">
+              Não foi possível comprimir {name}
+            </span>
+            <CodeLine>{item.processingError ?? "O servidor não informou o motivo."}</CodeLine>
+          </Bubble>
+        </MessageRow>
+      );
+    }
+
+    if (item.summaryStatus === "Completed") {
+      const past = summaryFacts(null, item);
+      return (
+        <MessageRow key={item.id} timestamp={at} tone="summary" author="Resumo" glyph="✓">
+          <Bubble variant="summary" accent="brand">
+            <span className="min-w-0 truncate text-label font-semibold text-text">{name}</span>
+            <p className="text-body-lg text-text">{past.text}</p>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge>{past.language}</Badge>
+              <span className="font-mono text-mono text-text-secondary">
+                {past.length} / {past.maxLength} caracteres
+              </span>
+            </div>
+          </Bubble>
+        </MessageRow>
+      );
+    }
+
+    if (item.summaryStatus === "Failed") {
+      return (
+        <MessageRow key={item.id} timestamp={at} tone="error" author="Sistema" glyph="✕">
+          <Bubble variant="error" accent="danger">
+            <span className="text-body font-semibold text-danger">
+              Não foi possível resumir {name}
+            </span>
+            <CodeLine>{item.summaryError ?? "O servidor não informou o motivo."}</CodeLine>
+          </Bubble>
+        </MessageRow>
+      );
+    }
+
+    // Disabled, or still queued for the summary worker — neutral either way.
+    return (
+      <MessageRow key={item.id} timestamp={at} tone="system" author="Sistema" glyph="○">
+        <Bubble>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-body text-text">
+              {name} —{" "}
+              {item.summaryStatus === "Disabled"
+                ? "armazenado, resumo desativado no servidor"
+                : "aguardando o resumo"}
+            </span>
+            <span className="ml-auto shrink-0 font-mono text-mono text-text-secondary">
+              {item.summaryStatus}
+            </span>
+          </div>
+        </Bubble>
+      </MessageRow>
+    );
+  }
 
   function renderMessage(message: ThreadMessage) {
     switch (message.phase) {
@@ -216,13 +313,17 @@ export function Thread({
       aria-label="Transcrição"
       className={cn("flex h-full w-full flex-col gap-6", className)}
     >
-      {phase === "idle" ? (
+      {/* The empty state is only true when the conversation is genuinely empty — no session AND
+          no history. Rendering it above a list of audios is how the screen ended up contradicting
+          itself. */}
+      {phase === "idle" && processed.length === 0 ? (
         <EmptyState
           headline="Nenhum áudio ainda"
           subline="Envie um arquivo no painel à direita. A transcrição aparece aqui, nesta conversa."
         />
       ) : (
         <>
+          {processed.map(renderProcessed)}
           {messages.map(renderMessage)}
           {phase === "uploading" ? (
             <MessageRow tone="system" author="Sistema" timestamp="" glyph="↑">

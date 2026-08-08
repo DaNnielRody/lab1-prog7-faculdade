@@ -4,8 +4,6 @@ export type ChipVariant =
   | "idle"
   | "uploading"
   | "processing"
-  | "compressing"
-  | "summarizing"
   | "completed"
   | "failed"
   | "disabled";
@@ -32,18 +30,6 @@ const CHIP: Record<ChipVariant, ChipStyle> = {
   },
   processing: {
     label: "Processando",
-    surface: "bg-info-soft",
-    ink: "text-info",
-    dot: "bg-info",
-  },
-  compressing: {
-    label: "Comprimindo",
-    surface: "bg-info-soft",
-    ink: "text-info",
-    dot: "bg-info",
-  },
-  summarizing: {
-    label: "Resumindo",
     surface: "bg-info-soft",
     ink: "text-info",
     dot: "bg-info",

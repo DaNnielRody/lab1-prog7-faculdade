@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CompletedDialog } from "@/components/transcription/CompletedDialog";
 import { ConfirmRestartDialog } from "@/components/transcription/ConfirmRestartDialog";
 import { FailedDialog } from "@/components/transcription/FailedDialog";
 import { PlayerBar } from "@/components/transcription/PlayerBar";
-import { ProcessedList } from "@/components/transcription/ProcessedList";
 import { SettingsPanel } from "@/components/transcription/SettingsPanel";
 import { Sidebar } from "@/components/transcription/Sidebar";
 import { Thread } from "@/components/transcription/Thread";
 import { Topbar } from "@/components/transcription/Topbar";
 import { UploadDialog } from "@/components/transcription/UploadDialog";
+import { Toast, type ToastNotice } from "@/components/ui/Toast";
 import { useProcessedAudios } from "@/lib/useProcessedAudios";
 import { useTranscription } from "@/lib/useTranscription";
 
@@ -32,6 +32,34 @@ export default function TranscriptionScreen() {
     if (phase === "completed") setCompletedOpen(true);
     if (phase === "failed") setFailedOpen(true);
   }, [phase]);
+
+  // The API lists newest first; a conversation reads oldest first. The audio of the session
+  // currently on screen is dropped so it is not told twice — once as history, once live.
+  const history = useMemo(
+    () => processed.audios.filter((item) => item.id !== session.audio?.id).slice().reverse(),
+    [processed.audios, session.audio?.id],
+  );
+
+  const [notice, setNotice] = useState<ToastNotice | null>(null);
+  const dialogOpen = uploadOpen || completedOpen || failedOpen || restartOpen;
+
+  // The toast is screen-level, not list-level: it belongs to the composition, not to the
+  // component whose fetch failed. Producer = "list fetch failed AND zero rows held" — the one
+  // row of the render truth table where the region itself draws nothing.
+  const listUnreachable = processed.error !== null && processed.audios.length === 0;
+  const { errorSeq, reload } = processed;
+  useEffect(() => {
+    if (!listUnreachable) {
+      setNotice(null);
+      return;
+    }
+    setNotice({
+      id: errorSeq,
+      message: "Não foi possível carregar os áudios processados.",
+      actionLabel: "Recarregar a lista",
+      onAction: reload,
+    });
+  }, [listUnreachable, errorSeq, reload]);
 
   function handleSubmit() {
     if (phase === "idle") {
@@ -63,35 +91,29 @@ export default function TranscriptionScreen() {
 
   return (
     <div className="flex min-h-screen w-full flex-col xl:h-screen xl:flex-row xl:overflow-hidden">
-      <Sidebar className="hidden xl:flex" />
+      {/* The processed-list fetch is the client's most reliable reachability probe: it runs on
+          mount and on every poll, and it fails only on transport, never on a domain outcome. */}
+      <Sidebar apiReachable={processed.error === null} className="hidden xl:flex" />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Topbar phase={phase} onRestart={() => setRestartOpen(true)} />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-10 py-8">
-          <div className="flex min-h-0 shrink-0 grow basis-auto flex-col">
-            <Thread
-              phase={phase}
-              progress={session.progress}
-              file={file}
-              audio={session.audio}
-              summary={summary}
-              error={error}
-              messages={session.messages}
-              onRetry={() => {
-                setFailedOpen(false);
-                void session.retry();
-              }}
-              onSendAnother={() => {
-                setFailedOpen(false);
-                session.reset();
-              }}
-            />
-          </div>
-          <ProcessedList
-            audios={processed.audios}
-            loading={processed.loading}
-            error={processed.error}
+        <div className="min-h-0 flex-1 overflow-y-auto px-10 py-8">
+          <Thread
             phase={phase}
-            onReload={processed.reload}
+            progress={session.progress}
+            file={file}
+            audio={session.audio}
+            summary={summary}
+            error={error}
+            messages={session.messages}
+            processed={history}
+            onRetry={() => {
+              setFailedOpen(false);
+              void session.retry();
+            }}
+            onSendAnother={() => {
+              setFailedOpen(false);
+              session.reset();
+            }}
           />
         </div>
         <PlayerBar file={file} />
@@ -130,6 +152,8 @@ export default function TranscriptionScreen() {
         onCancel={() => setRestartOpen(false)}
         onConfirm={handleRestart}
       />
+      {/* Last child of the root: tab order reaches the toast after all page content. */}
+      <Toast notice={notice} paused={dialogOpen} onDismiss={() => setNotice(null)} />
     </div>
   );
 }
