@@ -169,6 +169,27 @@ describe("screen states", () => {
     expect(document.querySelector(".text-danger")).toBeNull();
   });
 
+  // GET /api/audios não é paginado. Abrir a conversa com o histórico inteiro faz o usuário rolar
+  // por todo áudio antigo antes de chegar na sessão que acabou de começar.
+  it("abre a conversa com no máximo os 10 áudios mais recentes", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...audioDto("Completed"),
+      id: `audio-${i}`,
+      originalFileName: `audio-${i}.mp3`,
+      summary: `Resumo do áudio ${i}.`,
+    }));
+    listAudiosMock.mockResolvedValue(many);
+
+    render(<TranscriptionScreen />);
+    vi.useRealTimers();
+
+    // A API devolve mais novo primeiro, então os 10 mantidos são os índices 0..9.
+    expect(await screen.findByText("Resumo do áudio 0.")).toBeInTheDocument();
+    expect(screen.getByText("Resumo do áudio 9.")).toBeInTheDocument();
+    expect(screen.queryByText("Resumo do áudio 10.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resumo do áudio 24.")).not.toBeInTheDocument();
+  });
+
   // Regressão: com a API fora do ar, a sessão E a lista falham pela mesma causa. A lista não pode
   // reportar o mesmo fracasso uma segunda vez em vermelho, nem reusar o nome de um botão que faz
   // outra coisa. Encontrado abrindo a tela no navegador, não por teste.

@@ -15,6 +15,9 @@ import { Toast, type ToastNotice } from "@/components/ui/Toast";
 import { useProcessedAudios } from "@/lib/useProcessedAudios";
 import { useTranscription } from "@/lib/useTranscription";
 
+/** How many already-processed audios the conversation opens with, newest kept. */
+const HISTORY_LIMIT = 10;
+
 export default function TranscriptionScreen() {
   const session = useTranscription();
   const { phase, error, file, summary, audio } = session;
@@ -35,8 +38,16 @@ export default function TranscriptionScreen() {
 
   // The API lists newest first; a conversation reads oldest first. The audio of the session
   // currently on screen is dropped so it is not told twice — once as history, once live.
+  //
+  // Only the most recent few: `GET /api/audios` is unpaginated, and the whole history rendered
+  // on open means scrolling past every old audio to reach the session you just started. There is
+  // no "ver mais" control because none is designed — the cut is silent and deliberate.
   const history = useMemo(
-    () => processed.audios.filter((item) => item.id !== session.audio?.id).slice().reverse(),
+    () =>
+      processed.audios
+        .filter((item) => item.id !== session.audio?.id)
+        .slice(0, HISTORY_LIMIT)
+        .reverse(),
     [processed.audios, session.audio?.id],
   );
 
