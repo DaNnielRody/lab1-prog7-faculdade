@@ -97,6 +97,12 @@ _Avoid_: snackbar, alert, banner
 |----------|---------|---------|
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:5218` | Base URL of the AudioApi |
 
+The default is the **`dotnet run`** port. Docker Compose publishes the API on **8080**, so running
+the client against the compose stack needs `web/.env.local` with
+`NEXT_PUBLIC_API_BASE_URL=http://localhost:8080` **and a dev-server restart** — `NEXT_PUBLIC_*` is
+inlined at build time, not read per request. Without it the screen shows "API sem resposta" and
+looks like an app bug rather than a missing variable.
+
 ## Flagged ambiguities
 
 - The API returns **one summary**, never a segmented transcript. The thread must never render

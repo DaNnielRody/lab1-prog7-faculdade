@@ -242,6 +242,22 @@ A API fica disponível em **http://localhost:8080** (Swagger em
 http://localhost:8080/swagger — o compose usa `ASPNETCORE_ENVIRONMENT=Development`).
 O worker não é exposto ao host: só a API fala com ele, pela rede interna do compose.
 
+> ⚠️ **Usando o front junto com o compose, aponte-o para a 8080.** O cliente web tem como padrão
+> `http://localhost:5218`, que é a porta do `dotnet run` — com o compose ele bate numa porta onde
+> não há nada e a tela mostra "API sem resposta". Crie `web/.env.local`:
+>
+> ```bash
+> echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8080' > web/.env.local
+> ```
+>
+> e **reinicie o `npm run dev`** — variáveis `NEXT_PUBLIC_*` são lidas no build, não a cada request.
+> O CORS já permite `http://localhost:3000`; para outra origem, ajuste `Cors:AllowedOrigins`.
+
+> ⚠️ **Depois de mudar código do servidor, rebuilde.** `docker compose up` sem `--build` sobe a
+> imagem antiga e a API responde sem os campos novos (`processingStatus` e companhia), o que
+> aparece no cliente como comportamento fantasma. Use `docker compose up -d --build`. Se o schema
+> mudou, apague o volume também: `docker compose down -v`.
+
 > **Primeira execução é lenta.** A imagem do worker instala o `faster-whisper` e, ao subir, baixa
 > os pesos do modelo `tiny` (~75 MB). Eles ficam no volume `whisper-models`, então da segunda vez
 > em diante o worker sobe offline. A API espera o `/health` do worker antes de aceitar tráfego.
