@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import TranscriptionScreen from "@/app/page";
-import { getSummary, listAudios, uploadAudio } from "@/lib/api";
+import { ApiError, getSummary, listAudios, uploadAudio } from "@/lib/api";
 import type { AudioFileDto, AudioSummaryDto, SummaryStatus } from "@/lib/types";
 
 // `listAudios` é mockado porque a tela passou a carregar a lista de áudios processados ao montar.
@@ -164,5 +164,40 @@ describe("screen states", () => {
     expect(document.querySelector(".bg-danger-soft")).toBeNull();
     expect(document.querySelector(".border-danger-border")).toBeNull();
     expect(document.querySelector(".text-danger")).toBeNull();
+  });
+
+  // Regressão: com a API fora do ar, a sessão E a lista falham pela mesma causa. A lista não pode
+  // reportar o mesmo fracasso uma segunda vez em vermelho, nem reusar o nome de um botão que faz
+  // outra coisa. Encontrado abrindo a tela no navegador, não por teste.
+  it("does not let the processed list echo the thread when the whole API is unreachable", async () => {
+    const failure = "Não foi possível falar com o servidor. Verifique se a API está no ar.";
+    const releaseUpload = deferUpload();
+    getSummaryMock.mockResolvedValue(summaryDto("Failed", { error: failure }));
+    listAudiosMock.mockRejectedValue(new ApiError(failure, 0));
+
+    const user = userEvent.setup();
+    render(<TranscriptionScreen />);
+    await selectAndSubmit(user);
+
+    await releaseUpload(audioDto("Pending"));
+    await tick();
+    vi.useRealTimers();
+
+    await closeOutcomeDialog(user);
+
+    // O aviso vai para o toast, que é fixo e não ocupa fluxo…
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveTextContent("Não foi possível carregar os áudios processados.");
+    expect(screen.getByRole("button", { name: "Recarregar a lista" })).toBeInTheDocument();
+
+    // …e a região da lista não desenha nada: nem seção, nem divisor, nem cabeçalho.
+    expect(screen.queryByRole("heading", { name: "Áudios processados" })).not.toBeInTheDocument();
+
+    // "Tentar novamente" continua significando uma coisa só: repetir a transcrição.
+    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(2);
+
+    // O toast é neutro: o único tratamento de danger da tela continua sendo o do thread.
+    expect(toast.querySelector(".bg-danger-soft")).toBeNull();
+    expect(toast.querySelector(".text-danger")).toBeNull();
   });
 });

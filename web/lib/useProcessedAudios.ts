@@ -28,6 +28,12 @@ export interface UseProcessedAudios {
   audios: AudioFileDto[];
   loading: boolean;
   error: string | null;
+  /**
+   * Counts failed attempts. `error` never transitions back to `null` between two consecutive
+   * failures, so the string alone gives a consumer no rising edge — {component.toast} needs one
+   * to restart its dwell when a retry fails again.
+   */
+  errorSeq: number;
   reload: () => void;
 }
 
@@ -35,6 +41,7 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
   const [audios, setAudios] = useState<AudioFileDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorSeq, setErrorSeq] = useState(0);
 
   const generationRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -62,6 +69,7 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
     } catch (cause) {
       if (generationRef.current !== generation) return;
       setError(cause instanceof ApiError ? cause.message : LIST_ERROR);
+      setErrorSeq((n) => n + 1);
       setLoading(false);
       return;
     }
@@ -110,5 +118,5 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
     };
   }, []);
 
-  return { audios, loading, error, reload };
+  return { audios, loading, error, errorSeq, reload };
 }
