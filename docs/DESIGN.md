@@ -2,8 +2,13 @@
 
 > Single source of truth for the frontend of the Prog7 audio API. Every visual value in this
 > document resolves to a token defined here. Figma reference file:
-> <https://www.figma.com/design/7HoYbh5Peur8sdpSodTyKC> — page **Screens** (5 states + 4 modals),
+> <https://www.figma.com/design/7HoYbh5Peur8sdpSodTyKC> — page **Screens** (node `0:1`: frames
+> `01 Vazio`, `02 Enviando`, `03 Transcrevendo`, `04 Concluído`, `05 Falha`, plus modals `M1`–`M4`),
 > page **Foundations** (token sheet).
+>
+> **Entries in this document are not yet individually traced to those frames** — see §11. Until they
+> are, treat any entry that names no node id as unverified against the design, and check the frame
+> before extending it.
 
 ---
 
@@ -214,13 +219,14 @@ The app is a **three-column shell at a fixed 1440×900 design frame**, not a cen
 | `{layout.center}` | fluid (880px at 1440) | Fills remaining space. Contains topbar (64px), chat body (fluid, scrolls), player bar (84px). |
 | `{layout.panel}` | 320px | Fixed. Controls only. |
 
-- **Center column body regions**: the scrolling body of `{layout.center}` stacks exactly two
-  regions, in this order — the **thread region** (`{component.message-row}` list) and the
-  **processed region** (`{component.processed-section}`). They are separated by `{spacing.12}`
-  and the processed region's own 1px `{colors.surface.hairline}` top border. Both regions cap
-  their content at `{layout.bubble}` and align to the same left edge, so the page reads as one
-  measure, not two. No third region may be added to this body without a new pass on this
-  document.
+- **The center column body is exactly one region**: the **thread** — a single vertical list of
+  `{component.message-row}`, at `{spacing.6}` row gap, capped at `{layout.bubble}`, aligned to one
+  left edge. Everything the screen has to say about an audio is a message in that list, whether the
+  audio belongs to the session in this tab or to the server's history (§7 Thread). There is no
+  second region, no divider inside the body and no section heading: adding one requires a new pass
+  on this document, because a second region is what let the body contradict itself once already
+  (§11). A **fixed overlay** is not a body region and does not count against that rule —
+  `{component.toast}` is positioned against the viewport and never enters the scroll flow.
 - **Message max width**: `{layout.bubble}` = 624px. Bubbles do not stretch to the full center
   column — a 900px-wide line of summary text is unreadable, and the fixed measure keeps the thread
   looking like a thread at any viewport.
@@ -246,6 +252,7 @@ must reference these names, never re-derive the number.
 | `{size.accent-rail}` | 3px | Left accent rail on bubbles and the active nav item |
 | `{size.wave-bar}` | 3px wide, 6–24px tall | `{component.waveform}` bars |
 | `{size.measure-narrow}` | 360px | Max line length of centered empty-state copy |
+| `{layout.player-bar}` | 84px | Height of `{component.player-bar}`, and therefore the bottom offset any viewport-fixed overlay inside `{layout.center}` must clear. It is a token because a second component now depends on it: `{component.toast}` anchors above the player bar and must not re-derive the number. |
 
 ### Whitespace Philosophy
 
@@ -254,14 +261,11 @@ read as a compact instrument cluster, while the thread should read as content wi
 The chat body keeps 32px of vertical padding and 40px horizontal even when a single message is
 present, so the first message never looks pinned to the chrome.
 
-Empty space in the thread is a feature, not a gap to fill. After a `Completed` summary the **thread
-region** does not backfill with suggestions, related files, or export options — the session's job is
-done and it shows that by staying empty below the last message.
-
-That rule is scoped to the thread region. The **processed region** below it is not backfill: it is a
-second, separately-headed region showing state that lives on the server and survives a reload,
-whereas the thread shows only the session in this tab. The two are told apart by the hairline, the
-`{spacing.12}` gap and the `{type.heading}` section title — never by mixing rows.
+Empty space in the thread is a feature, not a gap to fill. After a `Completed` summary the thread
+does not backfill with suggestions, related files, or export options — the session's job is done and
+it shows that by staying empty below the last message. Server history is not backfill and is not an
+exception to this rule: it is not appended *after* the session, it is the part of the conversation
+that happened *before* it, and it is told in the same message rows (§7 Thread).
 
 ---
 
@@ -273,6 +277,7 @@ whereas the thread shows only the session in this tab. The two are told apart by
 | `{elevation.1}` | 1px `{colors.surface.hairline}` border, no shadow | Cards, bubbles, selects, file cards, chips, player card, stepper |
 | `{elevation.2}` | `0 18px 44px -6px rgba(0,0,0,0.22)` | **Modal dialogs only** |
 | `{elevation.scrim}` | `{colors.ink.base}` at 42% opacity, full viewport | Behind any dialog |
+| `{elevation.inverted}` | Flat `{colors.ink.base}` fill, no border, no shadow | **`{component.toast}` only** — the one element that floats over the light canvas without being a dialog |
 
 Separation in this system comes from surface change and hairlines, not from shadow. A card on
 `{colors.surface.muted}` is `{colors.surface.canvas}` plus a hairline; a card on canvas is
@@ -282,7 +287,55 @@ edge — a fill change alone is not enough separation at these low-contrast grey
 The single shadow exists because the modal must read as detached from a busy screen; the scrim
 alone would not lift it off the white canvas.
 
-### Decorative Depth
+`{elevation.inverted}` exists because a toast is the *second* element in the system that floats over
+content, and §5 had exactly one tool for that — the shadow — which is reserved for the dialog. The
+alternative to spending the shadow is to change the surface family instead: a slab of
+`{colors.ink.base}` over the light canvas separates by fill alone, needs no border and no shadow,
+and keeps "one shadow, dialogs only" intact. It is also the more honest reading of what a toast is:
+§1 splits the product into **dark chrome, light work**, and a transient notice about the client's
+own reachability is chrome, not work — the same argument that puts `{component.api-status-card}` on
+the rail. Every text pair inside it is already measured in §2 (`{colors.ink.text}` 17.24:1 and
+`{colors.ink.text-muted}` 6.91:1 on `{colors.ink.base}`; `{colors.focus.ring-dark}` 8.4:1), so the
+inverted surface costs no new color token.
+
+### Stacking
+
+The system had no z-index at all until `{component.toast}`, because nothing overlapped: dialogs use
+the platform `<dialog>` element with `showModal()`, which promotes them to the browser's **top
+layer**, above every z-index on the page by definition.
+
+| Token | Value | Use |
+|-------|-------|-----|
+| `{z.toast}` | 40 | `{component.toast}`'s fixed host. The only z-index in the system. |
+
+One consequence is normative, not incidental: **an open `{component.dialog}` always covers
+`{component.toast}`**, scrim included, and no z-index can change that. That is the correct
+composition — §8 Don't 10 gives the primary flow the loud report, and the dialog *is* the primary
+flow — but a toast that dwells out of sight behind a scrim is a message the user never received. So
+`{component.toast}` **holds its dwell timer while any dialog is open** (see its entry). Nothing else
+in the system stacks; do not add a second z-index without adding a row here.
+
+### Motion
+
+Undocumented by construction — see §11. `{component.toast}` is specified with **no entrance and no
+exit animation**: it appears and it disappears. The reason is the precedent §11 already set for the
+indeterminate `{component.progress-bar}`, which renders statically rather than carry an invented
+duration and easing. A toast is normally made noticeable by movement; this one is made noticeable by
+**surface** instead — a dark slab is unmissable in an interface that is otherwise white, grey and
+one orange. That is a design decision, not an omission, and it is why the inverted surface is worth
+a new elevation row.
+
+One timing value is defined, and it is not motion:
+
+| Token | Value | Use |
+|-------|-------|-----|
+| `{timing.toast-dwell}` | 8000ms | How long `{component.toast}` stays before dismissing itself. |
+
+`{timing.toast-dwell}` is a **time limit** under WCAG SC 2.2.1, not an animation, so
+`prefers-reduced-motion` does not and must not shorten or extend it. Its mitigations are the pause
+rules and the manual close in the component's entry. `prefers-reduced-motion` is already handled
+globally in `web/app/globals.css`; with no animation declared, `{component.toast}` honours it
+trivially and renders identically in both settings.
 
 There is none. No illustrations, no mascot, no gradient, no glass, no noise texture. The only
 non-rectangular ornaments in the product are the **waveform** (72 rounded bars, played portion in
@@ -391,7 +444,7 @@ an upload arrow in `{colors.brand.text}`; `{type.body}` Semi Bold headline "Arra
 
 **`{component.file-card}`** — horizontal row, background `{colors.surface.canvas}`, 1px
 `{colors.surface.hairline}`, radius `{rounded.sm}`, padding `{spacing.3}`, gap `{spacing.3}`.
-Contains a 34px `{rounded.sm}` `{colors.brand.soft}` tile with a note glyph in
+Contains a `{size.file-tile}` `{rounded.sm}` `{colors.brand.soft}` tile with a note glyph in
 `{colors.brand.text}`; a two-line stack of file name (`{type.label}` Semi Bold,
 `{colors.text.primary}`) and `{type.caption}` metadata in `{colors.text.secondary}`; a flexible
 spacer; a dismiss "✕" in `{colors.text.secondary}`. The name column must carry `min-width: 0` and
@@ -417,7 +470,7 @@ unchanged. Inside the rail, the ring is `{colors.focus.ring-dark}`.
 ### Thread
 
 **`{component.message-row}`** — vertical stack, gap `{spacing.2}`, width hug up to
-`{layout.bubble}`. Header: 22px `{rounded.full}` glyph circle + author in `{type.label}` Semi Bold
+`{layout.bubble}`. Header: `{size.glyph-circle}` `{rounded.full}` glyph circle + author in `{type.label}` Semi Bold
 `{colors.text.primary}` + timestamp in `{type.caption}` `{colors.text.secondary}`.
 
 **`{component.bubble}`** — background `{colors.surface.muted}`, 1px `{colors.surface.hairline}`,
@@ -429,20 +482,20 @@ radius `{rounded.md}`, padding `{spacing.3}` `{spacing.4}`, internal gap `{spaci
 `{colors.surface.canvas}`; hosts a `{component.file-card}` row and, once stored, the
 `{type.mono}` id line and a `201 Created` `{component.badge-success}`.
 
-**`{component.bubble-loading}`** — as `{component.bubble}` plus a 3px left accent rail in
-`{colors.brand.primary}` (upload) or `{colors.semantic.info}` (transcription). Contains: a 16px
+**`{component.bubble-loading}`** — as `{component.bubble}` plus a `{size.accent-rail}` left accent rail in
+`{colors.brand.primary}` (upload) or `{colors.semantic.info}` (transcription). Contains: a `{size.glyph-circle-sm}`
 soft-tinted glyph circle, a `{type.body}` Medium action line, a right-aligned `{type.mono}`
 percentage or status word, a `{component.progress-bar}`, and a `{type.caption}` explanation in
 `{colors.text.secondary}`. **This is the component the loading test asserts on.**
 
-**`{component.bubble-summary}`** — background `{colors.surface.canvas}`, 3px left accent rail in
+**`{component.bubble-summary}`** — background `{colors.surface.canvas}`, `{size.accent-rail}` left accent rail in
 `{colors.brand.primary}`, radius `{rounded.md}`. Body is the summary in `{type.body-lg}`
 `{colors.text.primary}`. Footer row: `{component.badge-mono}` with the detected language, then
 `{type.mono}` `"201 / 500 caracteres"` in `{colors.text.secondary}`, then a right-aligned
 `{type.caption}` provenance line "Whisper tiny · resumo extrativo".
 
 **`{component.bubble-error}`** — background `{colors.semantic.danger-soft}`, 1px `{colors.semantic.danger-border}` border,
-3px left accent rail in `{colors.semantic.danger}`. Title `{type.body-lg}` Semi Bold in
+`{size.accent-rail}` left accent rail in `{colors.semantic.danger}`. Title `{type.body-lg}` Semi Bold in
 `{colors.semantic.danger}`; explanation `{type.body}` in `{colors.text.primary}`; a
 `{component.code-line}`; then an action row of `{component.button-primary}` "Tentar novamente" +
 `{component.button-ghost}` "Enviar outro áudio" at `{spacing.2}` gap.
@@ -458,101 +511,87 @@ parent bubble's border color, radius `{rounded.sm}`, padding `{spacing.2}` `{spa
 sweep and the numeric label is replaced by the literal status word `Processing`. Never fabricate a
 percentage for work the API does not measure.
 
-**`{component.empty-state}`** — centered on both axes: 56px `{colors.brand.soft}` circle with a
-note glyph in `{colors.brand.text}`, `{type.heading}` headline "Nenhum áudio ainda",
-`{type.body}` subline in `{colors.text.secondary}` capped at 360px and centered.
+**`{component.empty-state}`** — centered on both axes: `{size.glyph-circle-lg}` `{colors.brand.soft}`
+circle with a note glyph in `{colors.brand.text}`, `{type.heading}` headline "Nenhum áudio ainda",
+`{type.body}` subline in `{colors.text.secondary}` capped at `{size.measure-narrow}` and centered.
 
-### Processed List
+#### History messages — an audio the server already holds
 
-The read-only list of every audio the server has stored, newest first, each row carrying **that
-audio's summary as its body**. It renders server state, not session state: it survives a reload and
-it is never appended to by the client. Nothing in it is interactive except the section-level retry
-control, so **no card in this family has a hover, pressed or focus state** — §7's hover policy
-applies to interactive surfaces only.
+The server keeps every audio it has stored, and `GET /api/audios` returns them. **They are not a
+list.** The Figma's chat body (node `5:47`) contains messages and nothing else — no section, no
+heading, no bordered card — so an audio the server processed is rendered as **one
+`{component.message-row}` in the same thread**, above the session's own messages. It reuses the
+entries above and introduces no new component.
 
-**`{component.processed-section}`** — vertical stack, width `{layout.bubble}` max, gap
-`{spacing.4}`, 1px top `{colors.surface.hairline}` border, padding-top `{spacing.8}`. First child is
-`{component.processed-header}`; second is the card list at `{spacing.3}` row gap.
+Placement and ordering:
 
-**`{component.processed-header}`** — horizontal row, gap `{spacing.2}`, align center:
-`{type.heading}` Semi Bold title in `{colors.text.primary}`, then a `{component.badge-mono}`
-carrying the item count. No action buttons — the list has nothing to act on.
+- History messages come **first**, oldest first, then the messages of the session in this tab. The
+  API returns newest first; the client reverses it, because a conversation reads forward in time.
+- The audio of the session currently on screen is **dropped from the history** — it is already
+  being told live and must not be told twice.
+- `{component.empty-state}` and the history are decided from **the same array, in the same
+  component**: the empty state renders only when the session is `idle` **and** the history is
+  empty. It is structurally impossible for "Nenhum áudio ainda" to sit above a rendered audio.
+- Timestamp is the audio's `createdAtUtc`, `HH:mm`, `{type.caption}` `{colors.text.secondary}` —
+  the same header as every other row.
+- **No `{component.status-chip}` anywhere in a history message.** The chip is topbar chrome for the
+  live session. Stage is carried the way every other thread row carries it: the literal API word in
+  `{type.mono}`.
+- **No `{component.progress-bar}`.** The server measures neither background stage, and §8 Don't 3
+  forbids a fabricated quantity. The bar stays a live-session component.
 
-**`{component.processed-card}`** — the resting/neutral card and the base every variant inherits:
-background `{colors.surface.muted}`, 1px `{colors.surface.hairline}`, radius `{rounded.md}`,
-padding `{spacing.3}` `{spacing.4}`, internal gap `{spacing.2}`, `{size.accent-rail}` left rail
-in `transparent`. The transparent rail is not decoration, it is alignment: every variant carries a
-3px left border so the text of a summarized card and the text of a compressing card start on the
-same vertical line. `{component.nav-item}` uses the same device.
+One variant per server state, each a full entry:
 
-Structure, in order, in every variant:
+**`{component.message-row}` · history compressing** — `ProcessingStatus` is `Pending` or
+`Processing`. Circle `{colors.surface.muted}` with a `○` glyph in `{colors.text.secondary}`, author
+"Sistema", body `{component.bubble}`. The bubble holds one row, gap `{spacing.2}`: the original file
+name plus the stage, `{type.body}` in `{colors.text.primary}`, `min-width: 0` and ellipsis-truncated
+(§8 Do 8); then a right-aligned, non-shrinking `{type.mono}` literal `ProcessingStatus` value in
+`{colors.text.secondary}`. Copy: `"<arquivo> — comprimindo"` for `Processing`,
+`"<arquivo> — na fila para compressão"` for `Pending`.
 
-1. **`{component.processed-card-header}`** — horizontal row, gap `{spacing.3}`, align center:
-   `{size.file-tile}` `{rounded.sm}` `{colors.brand.soft}` tile with a note glyph in
-   `{colors.brand.text}`; a flexible two-line stack (`min-width: 0`) of the original file name
-   (`{type.label}` Semi Bold `{colors.text.primary}`, ellipsis-truncated) over a `{type.caption}`
-   metadata line in `{colors.text.secondary}` reading size · format · creation date; then the
-   card's `{component.status-chip}` variant, right-aligned and non-shrinking.
-2. **Body** — one of the five variants below.
-3. **Footer** — only `{component.processed-card-summary}` has one.
+**`{component.message-row}` · history compression failed** — `ProcessingStatus` is `Failed`. Circle
+`{colors.semantic.danger-soft}` with a `✕` glyph in `{colors.semantic.danger}`, author "Sistema",
+body `{component.bubble-error}` **without its action row**: title `{type.body}` Semi Bold in
+`{colors.semantic.danger}` reading `"Não foi possível comprimir <arquivo>"`, then a
+`{component.code-line}` carrying the raw `processingError`, or
+`"O servidor não informou o motivo."` when the server sent none. No "Tentar novamente" and no
+"Enviar outro áudio": there is no reprocess endpoint, and the browser no longer holds the file, so
+either control would be a promise the product cannot keep.
 
-**`{component.processed-card-compressing}`** — base surface. Body is a single row, gap
-`{spacing.2}`: a `{size.glyph-circle-sm}` `{colors.semantic.info-soft}` circle with a glyph in
-`{colors.semantic.info}`, a `{type.body}` Medium action line in `{colors.text.primary}`, and a
-right-aligned `{type.mono}` literal `ProcessingStatus` value in `{colors.text.secondary}`.
-Left rail `{colors.semantic.info}` (6.83:1 on `{colors.surface.muted}`). Chip
-`{component.status-chip-compressing}`. **No `{component.progress-bar}`**: the server measures
-neither stage, so the row shows the literal status word and nothing that could be read as a
-quantity — §8 Don't 3. The bar stays a thread-only component, where a single live session justifies
-its weight.
+**`{component.message-row}` · history summarized** — `SummaryStatus` is `Completed`. Circle
+`{colors.brand.soft}` with a `✓` glyph in `{colors.brand.text}`, author "Resumo", body
+`{component.bubble-summary}` with one addition and one omission. Addition: a first line with the
+original file name, `{type.label}` Semi Bold in `{colors.text.primary}`, `min-width: 0`,
+ellipsis-truncated — the live session's summary needs no such line because the file was named two
+rows above, and a history summary has no such row. Omission: **no provenance caption**
+("Whisper tiny · resumo extrativo") — it describes how this build transcribes, it is already stated
+once per screen by the live summary, and repeating it on every historical row is noise. Body and
+footer are unchanged: the summary in `{type.body-lg}` `{colors.text.primary}`, then a wrapping
+footer row at `{spacing.2}` of `{component.badge-mono}` with the detected language and `{type.mono}`
+`"201 / 500 caracteres"` in `{colors.text.secondary}`. Never clamped, never behind a disclosure —
+500 characters is ~6 lines at this measure and the visible count already says how much text there
+is.
 
-**`{component.processed-card-summarizing}`** — identical to `{component.processed-card-compressing}`
-in every property, except the action line copy and the chip, which is
-`{component.status-chip-summarizing}`, and the literal word, which is the `SummaryStatus` value.
+**`{component.message-row}` · history summary failed** — `SummaryStatus` is `Failed`. Identical to
+*history compression failed* in surface, circle, author and glyph; the title reads
+`"Não foi possível resumir <arquivo>"` and the `{component.code-line}` carries `summaryError` (same
+fallback string). Also no action row, for the same reason.
 
-**`{component.processed-card-summary}`** — background `{colors.surface.canvas}`, 1px
-`{colors.surface.hairline}`, left rail `{colors.brand.primary}` (3.12:1 on
-`{colors.surface.canvas}` — the exact pair §2 blesses as a graphical object; the rail is **not**
-legal on `{colors.surface.muted}`, which is why this variant alone changes surface). Chip
-`{component.status-chip-completed}`. Body is the summary text in `{type.body-lg}`
-`{colors.text.primary}` — the one 14px block in the card, and the only text in the family allowed
-to exceed two lines. Footer row, gap `{spacing.2}`, wrapping: `{component.badge-mono}` with the
-detected language, then `{type.mono}` `"201 / 500 caracteres"` in `{colors.text.secondary}`.
+**`{component.message-row}` · history stored, no summary** — `SummaryStatus` is `Disabled`, or the
+audio is compressed and still queued for the summary worker. Identical in every property to *history
+compressing*; only the copy and the literal word change. Copy:
+`"<arquivo> — armazenado, resumo desativado no servidor"` for `Disabled`,
+`"<arquivo> — aguardando o resumo"` otherwise; right-aligned `{type.mono}` literal `SummaryStatus`
+value. **Neutral, never red** — `Disabled` means the server was configured not to summarize, which
+is not an outcome (§2, §8).
 
-The summary is **never clamped and never behind a disclosure**. 500 characters is ~6 lines at
-`{type.body-lg}` across `{layout.bubble}`; a "ver mais" control would be a new interaction with no
-motion, focus or expanded-state entry in this document, and the visible character count already
-tells the reader how much text there is. The card grows; the list scrolls.
-
-**`{component.processed-card-failed}`** — background `{colors.semantic.danger-soft}`, 1px
-`{colors.semantic.danger-border}`, left rail `{colors.semantic.danger}` (5.03:1 on its soft tint).
-Chip `{component.status-chip-failed}`. Body: a `{type.body}` Semi Bold title in
-`{colors.semantic.danger}`, then a `{component.code-line}` carrying the raw server error string.
-It takes the same surface language as `{component.bubble-error}` but **no action row**: there is no
-reprocess endpoint, and a "Tentar novamente" that re-uploads a file the browser no longer holds
-would be a promise the product cannot keep.
-
-**`{component.processed-card-disabled}`** — base surface, left rail `transparent`, chip
-`{component.status-chip-disabled}`. Body is a single row: `{type.body}` in
-`{colors.text.primary}` plus a right-aligned `{type.mono}` `Disabled` in
-`{colors.text.secondary}`. It is the neutral card by construction — `Disabled` means the server
-was configured not to summarize, which is not an outcome and never renders red (§8, §2).
-
-**`{component.processed-empty}`** — a `{component.empty-state}` instance placed inside
-`{component.processed-section}`. It is centered horizontally and sized to its content, not to the
-region's height, because the region has no height of its own to center in.
-
-**`{component.processed-loading}`** — first load only, before any row exists: a single
-`{type.body}` line in `{colors.text.secondary}`, left-aligned under the header, with the container
-`aria-busy`. No skeleton shapes: this document defines no skeleton component and a grey block that
-imitates a card is a shape with no token.
-
-**`{component.processed-error}`** — the list itself failed to load: background
-`{colors.semantic.danger-soft}`, 1px `{colors.semantic.danger-border}`, radius `{rounded.md}`,
-padding `{spacing.3}` `{spacing.4}`, gap `{spacing.2}`, no left rail. A `{type.body}` line in
-`{colors.text.primary}` and a `{component.button-ghost}` retry. This is the only focusable element
-the region ever contains, and unlike a card the retry here **is** honest: re-issuing the GET is
-something the client can actually do.
+**Announcer split.** The screen has exactly two live regions and they never carry the same content:
+the thread (`role="log"`, `aria-live="polite"`) announces everything that is a message — the
+session's transitions and the history rows alike, since they are the same rows — and
+`{component.toast}` (`role="status"`) announces screen-level transient notices that no message row
+exists for. Two polite regions queue rather than collide; what must never happen is the same fact
+spoken by both, which is why a failed history fetch lives in the toast and never becomes a message.
 
 ### Status & Badges
 
@@ -570,14 +609,17 @@ something the client can actually do.
 | `{component.status-chip-failed}` | `{colors.semantic.danger}` | `{colors.semantic.danger-soft}` | "Falhou" |
 | `{component.status-chip-disabled}` | `{colors.text.secondary}` | `{colors.surface.muted}` | "Resumo desativado" |
 
-`{component.status-chip-compressing}` and `{component.status-chip-summarizing}` exist because the
-server runs **two** background stages (`ProcessingStatus` then `SummaryStatus`) and "Processando"
-alone cannot say which one is running. They share the info pair rather than inventing a hue —
-§8 Don't 6 — and they follow the same rule §2 states for the topbar chip: `Pending` and
-`Processing` collapse into **one** chip per stage, because from the user's side both mean "the
-server is working on it". The distinction stays where it is actionable, as the literal API word in
-`{type.mono}` inside the surface. `{component.status-chip-processing}` remains the topbar's chip
-for a live session; the two new variants are used only by `{component.processed-card}`.
+`{component.status-chip-compressing}` and `{component.status-chip-summarizing}` name the server's
+**two** background stages (`ProcessingStatus` then `SummaryStatus`), which "Processando" alone
+cannot tell apart. They share the info pair rather than inventing a hue — §8 Don't 6.
+
+**Both are currently unrendered.** They were added for a per-audio card that this document specified
+and the product never had; that region is gone (§11), and the thread names a stage with the literal
+API word in `{type.mono}`, not with a chip. `web/components/ui/Chip.tsx` still ships both variants,
+so the entries stay here — the document describes the code, and an undocumented shipped variant is
+worse than a documented unused one. The six chips the screen actually renders are the other six,
+all from `{component.topbar}`, one per `Phase`. If a future pass finds no caller for these two, the
+deletion is in the code first and here second.
 
 `Disabled` (the API's `Summarization:Enabled = false`) is **not a failure**: the upload succeeded
 and the file is stored, the server simply does not summarize. It therefore reuses the neutral
@@ -637,6 +679,19 @@ renders exactly one of these ("ÁUDIO").
 radius `{rounded.sm}`, 8px `{colors.semantic.success}` dot, "API online" `{type.label}` in
 `{colors.ink.text}`, host in `{type.mono}` `{colors.ink.text-muted}`.
 
+**`{component.api-status-card-unreachable}`** — same surface, radius, host line and metrics; the
+dot becomes 8px `{colors.ink.text-muted}` (6.91:1 on `{colors.ink.raised}`) and the label becomes
+"API sem resposta". A neutral dot, **not** `{colors.semantic.danger}`: §2 measures no danger value
+against the rail surfaces, and the rail is chrome — it reports reachability, it does not raise an
+alarm the thread has already raised. No `role`, no live region.
+
+This variant exists because the resting card asserts "API online" unconditionally, so on the one
+screen where the API is demonstrably down the rail states the opposite in the only green the system
+owns. Its trigger is the last request the client made: any failed fetch (the session's own requests
+or the `GET /api/audios` that loads the history) puts the card in this state, any successful one returns it to `{component.api-status-card}`. There
+is no health endpoint and none is implied — the card reports *our last attempt*, which is why the
+copy is "sem resposta" and not "offline". See §11: designed, not yet implemented.
+
 **`{component.topbar}`** — 64px, `{colors.surface.canvas}`, 1px bottom `{colors.surface.hairline}`,
 padding-x `{spacing.6}`. Left: `{type.heading}` title. Right: the current
 `{component.status-chip}` then `{component.button-ghost}` "Recomeçar".
@@ -668,6 +723,159 @@ from the file's own peaks when available, never re-randomized between renders of
 `{type.mono}` in `{colors.text.secondary}`. Values `1x`, `1.5x`, `2x`.
 
 ### Overlays
+
+**`{component.toast}`** — the system's only transient notification. It exists for exactly one class
+of message: a **screen-level notice that no message row exists for and that no region should have to
+grow a body to carry**. Today it has exactly one producer — `GET /api/audios` failed and the screen
+holds **no history to show**, so nothing on screen carries the failure and no message row can (§7
+Thread, History messages). It is screen-level, not thread-level: it belongs to the screen
+composition, not to the component whose fetch failed.
+
+When the fetch fails but history rows are already on screen, the toast does **not** fire: those rows
+are still the last thing the server said, they keep saying it, and an 8-second notice that expires
+while the rows it qualifies stay visible is worse than silence. The persisting half of that fact is
+`{component.api-status-card-unreachable}` in the rail, which is driven by the same signal (§8 Do 9).
+
+*Host.* A permanently-mounted, `position: fixed` layer, `pointer-events: none`, `z-index`
+`{z.toast}`, empty when there is no notice. It is fixed at **every** breakpoint — never
+`sticky`, never in flow. That is the point of the component: a failure that has nothing to show must
+claim no layout.
+
+*Anchor and offsets, per §9 breakpoint.* The host spans the horizontal extent of `{layout.center}`
+and sits at its bottom edge, so the notice appears next to the region it is about and inside the
+column that owns the work:
+
+| Breakpoint | left | right | bottom | Inner padding |
+|---|---|---|---|---|
+| `{bp.desktop}` | `{layout.rail}` (240px) | `{layout.panel}` (320px) | `{layout.player-bar}` (84px) | `{spacing.6}` x / `{spacing.4}` bottom |
+| `{bp.laptop}` | the rail's rendered width | 0 | `{layout.player-bar}` | `{spacing.6}` x / `{spacing.4}` bottom |
+| `{bp.tablet}` | the rail's rendered width (64px icon rail) | 0 | `{layout.player-bar}` | `{spacing.4}` |
+| `{bp.mobile}` | 0 | 0 | 0 | `{spacing.4}` |
+
+**What it must never cover**, stated as the reason for each offset: `{component.player-bar}` and the
+`{component.player-card}` inside it — the bottom offset is exactly `{layout.player-bar}` and the
+notice sits *above* it, never over the transport controls; `{layout.panel}` /
+`{component.settings-panel}` and its CTA — the right offset is exactly `{layout.panel}` at
+`{bp.desktop}`, and at `{bp.laptop}` and below the panel is a drawer/bottom sheet whose open state
+is a dialog-class surface and covers the toast legitimately; `{component.sidebar}` and
+`{component.api-status-card}` — the left offset is the rail's width, so the toast never sits over
+the one element that carries the *persisting* form of the same fact; `{component.topbar}` and its
+`{component.status-chip}` — the toast is bottom-anchored and cannot reach them.
+
+At `{bp.laptop}` and below the right offset is 0 because the panel has left the column;
+at `{bp.mobile}` the bottom offset is 0 + `{spacing.4}` padding because `{component.player-bar}`
+is in flow there and reserves nothing. When §9's docked mobile player bar ships, that bottom offset
+becomes `{layout.player-bar}` and this table is what must change — not a number in a component.
+
+**Implementation mapping, stated because the shipped shell is coarser than §9.** The build has
+exactly one shell breakpoint today: `xl:` (1280px) is `{bp.desktop}`, and *everything below it* is
+the single stacked column — the rail is not rendered, the panel is stacked under the centre column,
+and `{component.player-bar}` is in flow. So `{component.toast}` ships with **two** offset sets, not
+four: the `{bp.desktop}` row above at `xl:` and up, and the `{bp.mobile}` row below it. The
+`{bp.laptop}` and `{bp.tablet}` rows are the design intent for when §9's intermediate shells are
+actually built; they are not dead prose, they are the target, and they are listed here so that
+building those shells does not require re-deciding where the toast goes.
+
+*Surface.* `{elevation.inverted}`: flat `{colors.ink.base}` fill, **no border, no shadow**, radius
+`{rounded.md}`, padding `{spacing.3}` `{spacing.4}`, internal gap `{spacing.3}`. Width
+`width: 100%` of the host, capped at `{layout.bubble}` (624px), left-aligned — the same measure as
+the thread's message rows (§8 Do 6), so the notice lines up with the conversation it is about. The
+message column carries `min-width: 0` and **wraps** at that measure; it never truncates and never
+ellipsises, because a notice the user cannot finish reading is not a notice. The action does not
+wrap its own label (`shrink-0`); when the row is too narrow for message + action, the whole row
+wraps and the controls drop to a second line under the message.
+
+*Contents, in order.* (1) The message, `{type.body}` in `{colors.ink.text}` (17.24:1 on
+`{colors.ink.base}`, §2). (2) The action, `{component.button-ghost-rail}` — required here, because
+`{component.button-ghost}` is a `{colors.surface.canvas}` control and is illegal on an ink surface.
+(3) The dismiss "✕" in `{colors.ink.text-muted}` (6.91:1 on `{colors.ink.base}`, §2), `{type.label}`,
+`{rounded.full}`, hover `{colors.ink.raised}`, accessible name "Dispensar aviso" — the glyph is
+`aria-hidden` per §6. Focus inside the toast uses `{colors.focus.ring-dark}` (8.4:1 on
+`{colors.ink.base}`), i.e. the toast is a rail-family surface for focus purposes.
+
+**`{component.button-ghost-rail}`** — `{component.button-ghost}` translated to the ink family:
+background `transparent`, 1px `{colors.ink.hairline}` border, label `{type.label}` in
+`{colors.ink.text}`, radius `{rounded.full}`, padding `{spacing.2}` / `{spacing.4}`, hover
+background `{colors.ink.raised}` — which is the *documented* rail hover step (§7 hover policy:
+`{colors.ink.base}` → `{colors.ink.raised}`), not a new one. It is a variant, not a second button
+language, and it exists only because `{component.toast}` is the system's only ink surface that
+carries a control.
+
+*Tone.* **One tone only — neutral/informational.** There is deliberately no danger variant. §8
+Don't 10 assigns the danger surface, the `role="alert"` and the diagnosis to the primary flow, and
+the primary flow's failure is already a `{component.bubble-error}` in the thread plus a
+`{component.dialog}` over it. A red toast would be the third report of one root cause, in the
+loudest position on the screen, for the least important of the three. Any future request for a
+danger tone must first list every surface that is red at the same instant (§8 Don't 10); if the
+answer is "none", the message probably belongs in the thread instead.
+
+*Multiplicity.* **At most one toast exists at a time.** A new notice replaces the current one and
+restarts its dwell. There is no stack, no queue and no vertical offset arithmetic, because there is
+exactly one producer; a stack is undesigned and adding a second producer requires designing it
+(§11).
+
+*Dismissal.* **Both**, and both are required:
+
+- **Auto** — the toast dismisses itself after `{timing.toast-dwell}` (8000ms). Eight seconds rather
+  than the usual five because this toast carries an *action*: the dwell must cover reading the
+  sentence and travelling to the control.
+- **Manual** — the "✕". Always present. It is what makes the auto-dismiss legal to a user who reads
+  slowly and to a user who does not want the notice at all.
+
+*Hold rules* (the dwell is paused, not shortened or restarted-in-place):
+
+1. **Pointer over the toast** — pause. The user is reading or aiming at the action.
+2. **Focus anywhere inside the toast** — pause. A keyboard user tabbing to "Recarregar a lista" must
+   not have it disappear under the caret. This is the WCAG SC 2.2.1 mitigation for the time limit.
+3. **Any `{component.dialog}` open** — pause. `showModal()` puts the dialog in the browser top
+   layer, above `{z.toast}` and behind `{component.scrim}`, so the toast is unreadable; letting the
+   timer run would spend the notice on a screen the user cannot see (§5 Stacking).
+
+On release of all three holds the dwell restarts from full rather than resuming its remainder — a
+deliberate generosity, and one less piece of state.
+
+*Motion.* **None.** No entrance, no exit, no slide, no fade — see §5 Motion for the reasoning and
+§11 for the gap this leaves open. `prefers-reduced-motion` is honoured trivially and the component
+renders identically in both settings. `{timing.toast-dwell}` is a time limit, not motion, and
+`prefers-reduced-motion` must not change it.
+
+*ARIA contract.*
+
+- The **host** carries `role="status"` and `aria-atomic="true"`, and is **mounted from first render
+  and left in the DOM when empty**. A live region injected at the same moment as its content is
+  frequently not announced; the host must pre-exist so inserting the notice is a mutation.
+- `role="status"` and **not** `role="alert"`. `alert` is assertive: it interrupts. Nothing here
+  failed that the user initiated, the region it describes is secondary, and §8 Don't 10 reserves the
+  alert for the primary flow.
+- It composes with the thread's `role="log"` / `aria-live="polite"` because the two never carry the
+  same content: the thread announces session state, the toast announces screen-level notices that
+  have no message row. Two polite regions queue; they do not double-announce. No third live region
+  may be added: a second announcer over the same content is how the same fact gets spoken twice.
+- The toast **never moves focus**. `role="status"` that steals focus is a focus trap with no exit.
+- The toast is reachable by Tab in normal DOM order and is not `Esc`-dismissible; `Esc` belongs to
+  `{component.dialog}`.
+- At `{bp.tablet}` and below both controls take a 44×44px minimum hit area per §9, keeping their
+  `{type.label}` glyph and label sizes.
+
+*Copy* (Portuguese, verbatim):
+
+| Element | String |
+|---|---|
+| Message (history unreachable, nothing on screen) | "Não foi possível carregar os áudios processados." |
+| Action | "Recarregar a lista" |
+| Dismiss accessible name | "Dispensar aviso" |
+
+The message names no cause. "Verifique se a API está no ar" belongs to `{component.bubble-error}`,
+where the user's own action failed. The action is "Recarregar a lista" and never "Tentar novamente"
+— §8 Don't 11.
+
+*Ownership in the composition.* The toast is owned by the **screen**, not by the thread. It mounts
+as the last child of the page root, after `{component.settings-panel}`, so tab order reaches it
+after all page content. Its state is one nullable notice value held by the screen — not a global
+store, not a context, not a provider. The producer is an effect on the screen that watches "the
+history fetch failed **and** the screen holds no history"; the consumer is the presentational
+component, which owns only its own dwell timer and hold flags.
+See §11 for what a second producer would require.
 
 **`{component.scrim}`** — full viewport, `{colors.ink.base}` at 42%. Click dismisses any dialog
 except `{component.dialog-confirm}`.
@@ -728,6 +936,19 @@ point the user at a screen that does not exist — no "continuam acessíveis em 
    invariant, so it is visible, not implied.
 8. Give any flexible text column `min-width: 0` and ellipsis truncation before a neighbouring
    control can be pushed out of view.
+9. **Sort a failure by its lifetime before you place it.** An *event that is over* ("the request I
+   just made did not come back", with nothing on screen it describes) gets a transient overlay —
+   `{component.toast}` — which claims no layout and dismisses itself. A *fact about the system*
+   ("the API is not answering") goes to chrome — `{component.api-status-card-unreachable}` — where
+   it persists for as long as it is true. A *transition of the user's own audio* is neither: it is
+   a `{component.message-row}`, permanently. One server event can legitimately produce different
+   placements in different states, and forcing them to match for symmetry breaks one of them.
+
+10. **Ask what language the product already speaks before designing a new one.** A requirement of
+    the form "show X for each item" is a request for content, not for a component. This screen is a
+    conversation, so the answer was a message row it already had. Find the source frame the design
+    derives from and check what it actually contains *before* opening a new entry in this document
+    (§11, traceability).
 
 **Don't**
 
@@ -746,9 +967,41 @@ point the user at a screen that does not exist — no "continuam acessíveis em 
 7. Don't add download, export or share affordances — the product transcribes and displays, nothing
    else. The player is playback-only.
 8. Don't let a toast replace a message row. Transient notifications lose the history that makes the
-   wait legible.
+   wait legible. This scopes `{component.toast}` and does not license it: every backend transition
+   of *the user's own audio* is a `{component.message-row}` in the thread, permanently, and no toast
+   may stand in for one. `{component.toast}` carries only screen-level notices that have **no**
+   message row and never will — today, exactly one: the `GET /api/audios` history fetch failing
+   while the screen holds no history to show. Before routing anything new to it, ask whether it is a
+   transition of an audio; if it is, it is a row.
 9. Don't use a radius outside the four defined values, and never round a modal at
    `{rounded.md}` or a chip at anything but `{rounded.full}`.
+10. **Don't specify a secondary region's error state without composing it against the whole screen
+    failing.** The most common cause of a secondary fetch failing is the same cause that just
+    failed the primary flow, so the two error states render *together*, and a per-region spec
+    produces one root cause reported twice in the same viewport. The primary flow owns the danger
+    surface, the `role="alert"` and the diagnosis; a secondary region gets a quiet
+    `{colors.text.secondary}` `{type.body}` line and nothing else. Before shipping any error entry,
+    list every other surface that is red at the same instant.
+11. **Don't give two controls the same accessible name unless they invoke the same action.**
+    "Tentar novamente" on `{component.bubble-error}`, in the failure dialog and in
+    `{component.settings-panel}` is one action with three affordances and is correct. A control
+    that reloads a list is a different action and takes a different name
+    ("Recarregar a lista"). Name the action, not the mood.
+12. **Don't draw a boundary around emptiness.** A secondary region with nothing to show renders
+    **nothing at all** — no divider, no heading, no vertical rhythm, no padding. A `border-t`
+    announces "a region starts here"; spending one, plus `{spacing.12}` of separation and
+    `{spacing.8}` of padding, to say that there is nothing under it produces debris on a large empty
+    canvas, and it is worse without a heading, because the rule promises a region that never names
+    itself.
+    The trap this rule exists to close: **demoting an error's visual weight does not answer whether
+    it belongs in the document flow.** A failed-fetch notice in a secondary region was once
+    correctly demoted from a red box to a quiet grey line and was still wrong, because the demotion
+    left the section chrome around it untouched. Weight and placement are two questions. Ask the
+    second one every time you answer the first: *if this region had nothing to say, would it still
+    take up space?* If yes, the region — not the message — is the defect. And there is a third
+    question behind both, which is the one this document learned last: *should this region exist at
+    all?* Two rounds were spent on the weight and the placement of a region the design never had
+    (§11, traceability).
 
 ---
 
@@ -781,14 +1034,15 @@ its measured ratio in §2.
   `aria-expanded` / `aria-controls` and a summary of the current selection ("cosmic-audio.wav ·
   pt") visible on the trigger while collapsed.
 - **Thread**: bubbles go full-width minus `{spacing.4}` gutters below `{bp.mobile}`; the message
-  header stays a single row (glyph + author + timestamp) and the timestamp truncates first.
-- **Processed list**: never collapses and never moves column. It stays stacked under the thread
-  region at every breakpoint, because it is content and the only two places it could go —
-  `{layout.rail}` (240px, dark, identity only) and `{layout.panel}` (320px, controls only) — are
-  both wrong surfaces for a 500-character body block. At `{bp.mobile}` the cards go full-width
-  minus `{spacing.4}` gutters, the region's top padding steps `{spacing.8}` → `{spacing.4}`, and
-  `{component.processed-card-header}` wraps so the `{component.status-chip}` sits on its own line
-  under the metadata rather than squeezing the file name.
+  header stays a single row (glyph + author + timestamp) and the timestamp truncates first. History
+  messages are message rows and inherit this line exactly — there is no second rule for them, and
+  the thread never collapses, never moves column and never becomes a disclosure at any breakpoint.
+- **Toast**: `{component.toast}` never changes surface, tone or content across breakpoints; only its
+  fixed offsets change, per the table in its §7 entry. It tracks `{layout.center}` at
+  `{bp.desktop}` (left `{layout.rail}`, right `{layout.panel}`, bottom `{layout.player-bar}`), drops
+  the right offset once `{layout.panel}` becomes a drawer, and goes edge-to-edge minus `{spacing.4}`
+  gutters at `{bp.mobile}`. Its message wraps rather than truncating at every width, and both its
+  controls take a 44×44px hit area at `{bp.tablet}` and below.
 - **Player**: at `{bp.mobile}` the `{component.waveform}` is hidden and the card keeps play +
   elapsed/duration + speed only. It never wraps to two rows.
 - **Dialogs**: at `{bp.mobile}` they become full-width sheets with `height: 100dvh`, compact
@@ -845,6 +1099,12 @@ scale below 20px.
   communicates "unmeasured", not "moving" — because inventing a duration would be an inline visual
   decision. The one animated element is the loading button glyph, which §7 explicitly calls
   "rotating". Closing this gap is a `/darkdesign` pass, not a code tweak.
+  **`{component.toast}` is now a named item in this gap.** It is specified with *no* entrance and
+  *no* exit animation, deliberately and explicitly, and it is made noticeable by its inverted
+  surface instead. That is a working answer, not the right one: a toast is the component in this
+  system that would benefit most from a 120ms fade-and-rise, and the reason it does not have one is
+  that this document owns no duration and no easing token. §5 Motion defines the one timing value
+  the component genuinely needs (`{timing.toast-dwell}`, a time limit, not motion) and nothing else.
 - **Reference harvest limits.** The Mistral "Speech to text" and Hume screens were harvested from
   static screenshots only — no hover states, no mobile views, no authenticated chrome and no
   computed CSS were available. The palette, layout split and pill/hairline language are derived
@@ -856,16 +1116,56 @@ scale below 20px.
   > 50 MB, 422 "not decodable as audio") are named in copy but still have no dedicated dialog —
   they surface through `{component.bubble-error}`.
 - **Multi-file / multi-session behavior is only half designed.** The thread still models exactly
-  one audio at a time, and queueing several uploads has no design. Reading back previous audios
-  **is** designed now — §7 Processed List — but only as a read-only region: there is no way to
-  reopen a past audio in the thread, no way to play it (the player holds the locally selected
-  file), and no way to reprocess it. Those need endpoints the API does not have.
-- **The processed list has no pagination and no sort control.** It renders every row
-  `GET /api/audios` returns, in the order the API returns them (newest first). At a few hundred
-  rows that is a long scroll with no affordance to narrow it; a filter or a page control is a new
-  `/darkdesign` pass, not a code decision.
-- **The processed list is not drawn in Figma.** Like the four breakpoints, §7's Processed List
-  entries are specified in prose only; no frame exists for them.
+  one *live* audio at a time, and queueing several uploads has no design. Reading back previous
+  audios **is** designed now — §7 Thread, History messages — but only as read-only messages: there
+  is no way to reopen a past audio in the thread, no way to play it (the player holds the locally
+  selected file), and no way to reprocess it. Those need endpoints the API does not have. The
+  history is also rendered whole: every audio `GET /api/audios` returns becomes a row, so at a few
+  hundred audios the conversation is a very long scroll. A cap, a "carregar mais" or a date break is
+  undesigned — and, this time, must be checked against the Figma before it is specified.
+- **`docs/DESIGN.md` is not traceable to its source frames.** No entry in this document names the
+  Figma node it derives from, so a component invented at a desk and a component read off a frame are
+  indistinguishable once written down — both are prose in the same voice. That is not hypothetical:
+  an entire "Processed List" region (a section, a header, five card variants, an empty state, two
+  error states, two chip variants and a render truth table) was specified here, defended across two
+  rounds of review, and implemented, before a human opened the Figma and found that the **Screens**
+  page (node `0:1`) has nine frames — `01 Vazio`, `02 Enviando`, `03 Transcrevendo`, `04 Concluído`,
+  `05 Falha`, `M1`–`M4` — and not one of them contains a list. The requirement it was invented for
+  ("cada item do áudio processado mostrará o resumo do áudio") was satisfied all along by a message
+  in the chat body (node `5:47`). No process step caught it, because nothing in this document could
+  be checked against anything.
+  **Remedy**: every `{component.x}` entry carries the Figma node id it derives from, and an entry
+  with no node id is explicitly marked as *invented, unverified* so a reviewer can see the
+  difference. The thread entries can start today — Chat body `5:47`, `{component.bubble-summary}`
+  `5:260`, message rows `5:48` (Você) / `5:68` (Sistema · Pending) / `5:240` (Sistema · Completed) /
+  `5:254` (Resumo). Doing the same for the rail, the panel, the player and the dialogs is a
+  `/darkdesign` pass over the Figma file, not a code decision.
+- **Whole-screen failure is specified but only partly drawn.** No frame shows the composite — the
+  state where `{component.bubble-error}`, the failure dialog, `{component.toast}` and
+  `{component.api-status-card-unreachable}` are all live at once was found by a human opening the
+  page in a browser, **three times** — once for a duplicated red box, again for the orphaned grey
+  line the first fix left behind, and again for an empty state rendered directly above two audios.
+  None of the three was visible to a passing component test. Every *other* multi-surface failure
+  combination (rejected file + history error; `Disabled` + history error) is still unreviewed prose.
+- **`{component.api-status-card-unreachable}` ships, but only at `{bp.desktop}`.** The rail is
+  rendered from `{bp.desktop}` up and is hidden below it, so below 1280px the screen has **no**
+  persisting statement of reachability at all. That matters more now than it did: §7 hands the
+  *persisting* half of a history-fetch failure to this card and the *transient* half to
+  `{component.toast}`, so on a narrow viewport the persisting half has nowhere to render and the
+  only report is an 8-second toast. §9 already says the rail's contents move into the hamburger menu
+  below `{bp.tablet}` — including the API status card — but that menu is not implemented, and a
+  status card inside a closed menu is not a persisting statement anyway. This needs a
+  `/darkdesign` pass on where reachability lives on a narrow screen; it is not a code decision.
+- **`{component.toast}` has exactly one producer and no design for a second.** One notice at a
+  time, no stack, no queue, no vertical offset arithmetic, no priority rule between two notices, no
+  design for what happens when a notice arrives while another is held by hover. All of that is
+  affordable to leave undesigned only while the producer count is one. Adding a second producer is a
+  `/darkdesign` pass on this entry, not a prop.
+- **`{component.toast}` and `{component.button-ghost-rail}` are not drawn in Figma**, like the four
+  breakpoints — see the traceability gap above; these two are the entries most in need of the
+  *invented, unverified* mark. In particular the composite that matters most is
+  undrawn: `{component.dialog}` open in the browser top layer with the toast alive and held
+  underneath its scrim. That state is specified in §5 Stacking and verified by nobody's eye.
 - **The waveform has no real data source.** The API exposes no peak data, so the drawn bars are
   proportional decoration. §7 forbids re-randomizing them, but the derivation from actual audio
   peaks is not specified.

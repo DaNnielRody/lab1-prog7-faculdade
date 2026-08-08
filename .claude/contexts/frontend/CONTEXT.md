@@ -1,8 +1,14 @@
 # Frontend
 
-The browser client for the AudioApi. One screen, two regions: send an audio file and watch the
-server work (the **thread**), then read every processed audio's summary (the **processed list**).
-Source: a `File` from the user + `GET /api/audios` → sink: rendered thread messages and list rows.
+The browser client for the AudioApi. **One screen, one conversation**: send an audio file, watch the
+server work, and read the summary of every audio the server holds — all as messages in the same
+thread. Source: a `File` from the user + `GET /api/audios` → sink: rendered thread messages.
+
+The screen is a **chat**, and that is load-bearing. Its source of truth is the Figma
+`7HoYbh5Peur8sdpSodTyKC`, page **Screens** (`0:1`): nine frames, none of which is a list, and a
+"Chat body" (`5:47`) containing only messages. A requirement of the form "show X for each item"
+is satisfied here by **a message**, not by a new region. A separate bordered list was built once,
+below the thread, and had to be removed — see `docs/DESIGN.md` §11.
 
 Visual source of truth: **`docs/DESIGN.md`** (tokens + components). Never decide a visual value here.
 
@@ -11,7 +17,7 @@ Files:
 - `web/app/layout.tsx`, `web/app/globals.css` — fonts + DESIGN.md tokens as CSS variables.
 - `web/components/ui/*` — the primitive library (one file per `{component.x}` family).
 - `web/components/transcription/*` — screen-level composites (Sidebar, Topbar, Thread, SettingsPanel, PlayerBar, dialogs).
-- `web/components/transcription/ProcessedList.tsx` — the processed-audios list (one card per audio).
+- `web/components/ui/Toast.tsx` — the screen's only transient notice (fixed, claims no layout).
 - `web/lib/api.ts` — the only module that talks HTTP to the AudioApi (`uploadAudio`, `getSummary`, `listAudios`).
 - `web/lib/useTranscription.ts` — the upload + polling state machine for the current session.
 - `web/lib/useProcessedAudios.ts` — the list loader + poller for the processed region.
@@ -46,21 +52,31 @@ The interval that calls `GET /api/audios/{id}/summary` every 2s while the phase 
 `processing`, and stops on any terminal phase or after the 5-minute ceiling.
 _Avoid_: watcher, subscription
 
-**Processed list**:
-The second region of the screen, below the thread. One card per audio from `GET /api/audios`,
-each showing that audio's **summary** — or, when there is none yet, the reason (comprimindo /
-resumindo / falhou / desativado). Never an empty body. It is server state, not session state:
-it survives a reload and "Recomeçar", and it is read-only (no playback, no download, no retry —
-the API has no reprocess endpoint and the browser no longer holds the `File`).
-_Avoid_: history, sessions, feed
+**History message**:
+An audio the server already holds, rendered as an ordinary message in the thread
+(`Thread.renderProcessed`). One message per audio, oldest first, **above** the current session,
+with the session's own audio filtered out so it is never told twice. A `Completed` audio renders
+the summary bubble; every other state renders the reason (comprimindo / falhou / aguardando o
+resumo / desativado) — never an empty body. It is server state, so it survives a reload and
+"Recomeçar", and it is read-only: no playback (the player only plays the local `File`), no
+download, no retry (the API has no reprocess endpoint).
+_Avoid_: list, card, processed list, feed, history panel
 
 **List poller**:
 The interval in `useProcessedAudios` that re-fetches every 2s (`POLL_INTERVAL_MS`, shared with
-`useTranscription` — one cadence for one set of server transitions) **only while some row is
+`useTranscription` — one cadence for one set of server transitions) **only while some audio is
 non-terminal**, and stops when all are terminal. No 5-minute ceiling: there is no session to time
-out. A poll returning unchanged data must render byte-identical strings, or the `aria-live` region
-announces on every tick.
+out. `errorSeq` counts failed attempts, because `error` never returns to `null` between two
+consecutive failures and the toast needs a rising edge to restart its dwell.
 _Avoid_: refresh, auto-reload
+
+**Toast**:
+The screen's only transient notice: `position: fixed`, above the player bar, `role="status"`,
+auto-dismiss after 8s with holds on hover / focus / open dialog. It exists so a failure with
+nothing to show **claims no layout** — the previous inline treatment drew a divider and a heading
+to announce that it had nothing, which reads as debris. One producer today: `GET /api/audios`
+failed and the screen holds no history.
+_Avoid_: snackbar, alert, banner
 
 ## Relationships
 
@@ -91,9 +107,13 @@ _Avoid_: refresh, auto-reload
 - The player is playback-only; it plays the **locally selected file** via `URL.createObjectURL`,
   not the stored `.m4a`, so it works before/without a download round-trip. No download UI exists.
   Consequence: a row in the processed list **cannot** be played — the browser has no `File` for it.
-- The API now has **two** background stages, so a row can be `summaryStatus: Pending` while nothing
-  is being summarized yet. `processingStatus` takes precedence when choosing what a row says:
-  while `ffmpeg` runs there is no `.m4a`, so "resumindo" would be a lie.
+- The API now has **two** background stages, so an audio can be `summaryStatus: Pending` while
+  nothing is being summarized yet. `processingStatus` takes precedence when choosing what a
+  message says: while `ffmpeg` runs there is no `.m4a`, so "resumindo" would be a lie.
+- **The empty state and the history come from the same array, in the same component.** That is
+  not a style choice — the screen once rendered "Nenhum áudio ainda" directly above two audios,
+  because the two lived in different components. Keep them together and the contradiction is
+  structurally impossible.
 - Any test that renders `TranscriptionScreen` **must mock `listAudios`**. The screen fetches the
   list on mount; without the mock, jsdom issues a real network call whose success depends on
   whether the dev happens to have the API running — which is exactly the flakiness it caused once.
