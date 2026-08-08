@@ -114,11 +114,12 @@ Rodando pelo `dotnet run`, ela vem **desligada** (`Summarization:Enabled = false
 Aplicação **Next.js (App Router) + TypeScript + Tailwind v4** que consome esta API: envia o áudio,
 mostra o estado de carregamento durante o upload e exibe o resumo (ou o erro) na mesma tela.
 
-Abaixo do thread há a lista **Áudios processados** (`GET /api/audios`): um card por áudio, cada um
-mostrando **o resumo daquele áudio**. Quando ainda não há resumo, o card mostra o motivo —
-comprimindo, resumindo, falhou (com a mensagem do servidor) ou resumo desativado — nunca um espaço
-vazio. A lista faz polling só enquanto houver item não-terminal e para sozinha quando todos
-chegarem a um estado final.
+A tela é uma **conversa**, e cada áudio que o servidor já processou (`GET /api/audios`) aparece
+nela como **uma mensagem, mostrando o resumo daquele áudio** — as 10 mais recentes, antes da
+sessão atual. Quando ainda não há resumo, a mensagem diz o motivo (comprimindo, falhou com a
+mensagem do servidor, aguardando, ou resumo desativado); nenhum estado renderiza corpo vazio.
+O polling roda só enquanto houver áudio não-terminal e para sozinho quando todos chegam a um
+estado final.
 
 O visual é especificado em [`docs/DESIGN.md`](docs/DESIGN.md) — todo valor visual do código resolve
 para um token declarado em `web/app/globals.css`. O Figma de referência está linkado no topo do

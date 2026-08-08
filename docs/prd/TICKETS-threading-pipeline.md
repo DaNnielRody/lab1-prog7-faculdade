@@ -119,6 +119,14 @@ O cliente precisa distinguir "comprimindo" de "resumindo" — hoje os dois apare
 
 ## T4 — Cliente: lista de áudios processados, cada um com seu resumo
 
+> ⚠️ **Esta fatia foi entregue como escrita e depois revertida.** O `ProcessedList` abaixo foi
+> implementado, revisado e removido: a tela é um chat, e a página Screens do Figma
+> (`7HoYbh5Peur8sdpSodTyKC`, node `0:1`) não contém lista nenhuma — o Chat body (`5:47`) só tem
+> mensagens. O requisito é atendido por **uma mensagem por áudio na conversa**
+> (`Thread.renderProcessed`). O ticket fica como está, sem reescrita, porque o erro foi
+> especificar um componente sem conferir a fonte do design, e apagar o rastro esconderia isso.
+> Ver `docs/DESIGN.md` §11 e `docs/week4-threading-pipeline.md`.
+
 **Requisitos**: R10, R11, R12, R13
 **blocking**: T3
 

@@ -7,12 +7,25 @@ valida, grava os bytes originais, cria a linha e responde **201**. Um segundo wo
 background comprime para AAC, substitui o arquivo armazenado pelo `.m4a` e só então enfileira a
 sumarização.
 
-No cliente, a tela passou a listar os áudios já processados, **cada um mostrando o seu resumo**.
+No cliente, cada áudio que o servidor já processou aparece como **uma mensagem da conversa,
+mostrando o seu resumo**.
 
 A semana 3 tinha tirado a sumarização da requisição e deixado a compressão dentro dela, com o
 argumento — correto na época — de que 160ms para um áudio de 11 segundos não incomodava
 ([`docs/week3-threading-explanation.md`](week3-threading-explanation.md)). Esta semana fecha essa
 lacuna: o argumento valia para 11 segundos de áudio, não para o limite real de upload.
+
+### Onde está cada coisa
+
+| O que | Onde ler |
+|-------|----------|
+| Threading é o momento certo? | [Por que a compressão precisou sair agora](#por-que-a-compressão-precisou-sair-agora) — e por que `async/await` não bastava |
+| A redução de tempo é perceptível? | [A medição](#a-medição) — 2,927s → 0,214s, mesmo arquivo, com os logs |
+| Onde era necessário sincronizar? | [Como achar os pontos que precisam de sincronização](#antes-das-primitivas-como-achar-os-pontos-que-precisam-de-sincronização) — o método, antes das primitivas |
+| Que classes de threading, e por quê | [As primitivas](#as-primitivas-de-sincronização-e-onde-cada-uma-era-necessária) + a [tabela de escolhas e alternativas rejeitadas](#resumo-das-escolhas) |
+| O fluxo de upload continua correto? | [O que a mudança custou](#o-que-a-mudança-custou-o-422-acabou) — inclusive o que quebrou de propósito |
+| O que o cliente tem a ver com isso | [Por que este requisito aparece na mesma semana](#por-que-este-requisito-aparece-na-mesma-semana-que-o-threading) |
+| O que ficou de fora | [O que não foi feito](#o-que-não-foi-feito-e-o-gatilho-para-fazer) — cada item com o gatilho para revisitar |
 
 ### Fluxo completo
 
@@ -145,6 +158,50 @@ requisição** — um produtor (o endpoint), um consumidor (o worker) e uma fila
 
 ## As primitivas de sincronização, e onde cada uma era necessária
 
+### Antes das primitivas: como achar os pontos que precisam de sincronização
+
+Sincronização não se decide olhando o código pronto e procurando `lock`. Ela se decide
+perguntando **o que passou a ser compartilhado** quando o trabalho saiu da requisição. Três
+perguntas, nesta ordem, encontraram todos os pontos deste diff:
+
+**1. O que agora tem mais de um dono ao mesmo tempo?**
+Antes, cada upload era uma requisição do começo ao fim: um `AppDbContext`, um arquivo, um
+`ffmpeg`, tudo dentro do mesmo escopo, tudo serializado pelo próprio HTTP. Com dois workers em
+background, três coisas passaram a ter donos concorrentes:
+
+| Recurso | Quem disputa | Consequência sem controle | Primitiva |
+|---------|--------------|---------------------------|-----------|
+| Núcleos da máquina | N compressores | `ffmpeg` demais deixa todos mais lentos e compete com o thread pool do HTTP | `SemaphoreSlim(ProcessorCount)` |
+| A VPS do Whisper | N sumarizadores | 4 vCPUs remotos saturados | `SemaphoreSlim(1)` |
+| O arquivo `audios.db` | 2 workers + a requisição | `SQLite Error 5: database is locked` | `DbWriteGate`, `SemaphoreSlim(1,1)` |
+
+**2. O que atravessa a fronteira entre threads?**
+Só o `Guid`. Essa é uma decisão de sincronização disfarçada de decisão de tipo: `Stream`,
+`DbContext` e `HttpContext` são todos ou não-thread-safe ou já descartados quando o consumidor
+acorda. Passar o id e reler tudo do lado de lá elimina uma classe inteira de corrida em vez de
+protegê-la com trava. **A sincronização mais barata é a que você não precisa escrever.**
+
+**3. Existe algum instante em que o estado fica inconsistente para quem olha de fora?**
+Esta é a pergunta que quase escapou, e é a mais importante das três — porque as duas primeiras
+se respondem lendo o código, e esta só se responde imaginando um observador no meio da operação.
+
+Aqui o observador é `GET /api/audios/{id}/download`. A sequência natural de escrever é:
+grava o `.m4a` → apaga o original → atualiza a linha. Nessa ordem existe uma janela em que a
+linha ainda aponta para o `.wav`, o `.wav` já não existe, e o download responde **404** para um
+áudio perfeitamente válido. Não é corrupção nem exceção: é uma resposta errada, por alguns
+milissegundos, e some sozinha.
+
+Foi encontrada por um teste que exercita a janela de propósito (baixar durante todo o
+processamento), com **1 falha em 10 execuções**. Sem esse teste, o sintoma em produção seria
+"um usuário reclamou que o download falhou uma vez e depois funcionou" — o tipo de bug que se
+fecha como não reproduzível.
+
+A correção não usa primitiva nenhuma: é **ordem**. Grava o `.m4a` → commita a linha → só então
+apaga o original. Os dois arquivos coexistem entre um passo e outro, então a invariante
+*"o arquivo apontado pela linha existe em todo instante"* vale sempre. Vale registrar por
+extenso: **ordenar operações é uma técnica de sincronização**, e frequentemente é a que custa
+menos que uma trava.
+
 ### `Channel<Guid>` limitado — a fila (`ProcessingQueue`)
 
 Mesma escolha e mesmas razões da `SummaryQueue`: fila produtor/consumidor da BCL, assíncrona,
@@ -253,27 +310,61 @@ esperar a resposta. Nenhum outro teste da suíte foi tocado — os 55 continuam 
 
 ## O cliente: cada áudio processado mostra o seu resumo
 
-A tela passou a ter uma segunda região abaixo do thread: **Áudios processados**, alimentada por
-`GET /api/audios` (endpoint que existia desde a semana 1 e nunca tinha sido consumido).
+### Por que este requisito aparece na mesma semana que o threading
 
-Cada item mostra nome do arquivo, tamanho, formato, data, um chip de estado e — o ponto da
-atividade — **o resumo do áudio**. Um item sem resumo nunca fica vazio: ele mostra o motivo.
+À primeira vista são pedidos independentes — um de concorrência no servidor, outro de tela. Não
+são, e a ligação é a razão de existirem juntos.
 
-| Estado do item | O que aparece |
-|----------------|---------------|
-| `processingStatus` `Pending`/`Processing` | "Na fila para compressão" / "Comprimindo o áudio no servidor…" |
-| `processingStatus` `Failed` | "Não foi possível comprimir este áudio" + o `processingError` |
-| `summaryStatus` `Pending`/`Processing` | "Na fila para transcrição" / "Transcrevendo com Whisper tiny…" |
+**O histórico não é novo.** A tabela `AudioFile` e o `GET /api/audios` existem desde a semana 1;
+o endpoint simplesmente nunca tinha sido consumido. O que mudou não foi haver linhas, foi o que
+uma linha *significa*:
+
+```
+antes:   a linha existe  ⇒  está pronta        (dois estados, e um deles é "não existe")
+depois:  Pending → Processing → Completed | Failed, em duas etapas encadeadas
+```
+
+A semana 3 já tinha dito isso em uma frase: **"estado de processamento persistido só faz sentido
+se o processamento é assíncrono."** O inverso também vale, e é o ponto aqui: assim que o
+processamento vira assíncrono, o estado **precisa** ser persistido, porque a resposta HTTP não
+pode mais carregá-lo. E estado persistido por linha é exatamente o que transforma uma lista de
+arquivos numa lista que vale a pena ler.
+
+A cadeia, então:
+
+```
+o trabalho sai da requisição
+  → o resultado não cabe mais na resposta
+    → o estado precisa morar na linha (ProcessingStatus, SummaryStatus, os erros)
+      → o histórico deixa de ser "arquivos que subi" e vira "o que o servidor fez com cada um"
+        → aí mostrar o resumo de cada item passa a ser possível, e útil
+```
+
+O plural do enunciado — "cada item do áudio processad**o**" — é a pista: só existe "cada item"
+porque agora cada um pode estar num estado diferente ao mesmo tempo. Sem threading, todos
+estariam sempre no mesmo estado (pronto), e a tela não teria o que diferenciar.
+
+### Como ficou
+
+A tela é um **chat** (Figma `7HoYbh5Peur8sdpSodTyKC`, página Screens `0:1`), então cada áudio que
+o servidor tem é **uma mensagem da conversa** — não uma lista separada. As mensagens do histórico
+vêm antes da sessão atual, mais antigas primeiro, limitadas às 10 mais recentes.
+
+| Estado do áudio | A mensagem |
+|-----------------|------------|
+| `processingStatus` `Pending`/`Processing` | "na fila para compressão" / "comprimindo" + o estado literal em mono |
+| `processingStatus` `Failed` | "Não foi possível comprimir {arquivo}" + o `processingError` cru |
 | `summaryStatus` `Completed` | **o texto do resumo** + idioma + `N / 500 caracteres` |
-| `summaryStatus` `Failed` | "Não foi possível resumir este áudio" + o `summaryError` |
-| `summaryStatus` `Disabled` | "Resumo desativado no servidor. O áudio foi armazenado." — neutro, nunca vermelho |
+| `summaryStatus` `Failed` | "Não foi possível resumir {arquivo}" + o `summaryError` cru |
+| `summaryStatus` `Disabled` | "armazenado, resumo desativado no servidor" — neutro, nunca vermelho |
+| qualquer outro | "aguardando o resumo" — nenhum estado renderiza corpo vazio |
 
-A compressão tem precedência sobre a sumarização na escolha do estado: enquanto o `ffmpeg` roda
-não existe `.m4a` para resumir, então dizer "resumindo" seria mentira.
+A compressão tem precedência sobre a sumarização: enquanto o `ffmpeg` roda não existe `.m4a` para
+resumir, então dizer "resumindo" seria mentira. Isso é a mesma ordenação do pipeline aparecendo na
+tela — o cliente não pode afirmar um estado que o servidor ainda não pode ter alcançado.
 
-A lista faz polling **só enquanto houver item não-terminal** e para sozinha quando todos estiverem
-terminais. Todo valor visual resolve para um token de [`docs/DESIGN.md`](DESIGN.md), que ganhou
-nesta semana as entradas de `{component.processed-*}` e dois chips novos.
+O polling roda **só enquanto houver áudio não-terminal** e para sozinho quando todos chegam a um
+estado final — mesma disciplina da fila: trabalho só enquanto há trabalho.
 
 ---
 
