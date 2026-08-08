@@ -114,10 +114,14 @@ export function uploadAudio(file: File, opts: UploadOptions = {}): Promise<Audio
   });
 }
 
-export async function getSummary(id: string, signal?: AbortSignal): Promise<AudioSummaryDto> {
+/**
+ * Every read endpoint of this API answers the same way: JSON on 2xx, ProblemDetails otherwise,
+ * and an abort has to stay an abort instead of becoming a server error. One place, one behaviour.
+ */
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/audios/${id}/summary`, {
+    response = await fetch(`${API_BASE_URL}${path}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,
@@ -134,8 +138,16 @@ export async function getSummary(id: string, signal?: AbortSignal): Promise<Audi
   }
 
   try {
-    return JSON.parse(body) as AudioSummaryDto;
+    return JSON.parse(body) as T;
   } catch {
     throw new ApiError(GENERIC_ERROR, response.status);
   }
+}
+
+export function listAudios(signal?: AbortSignal): Promise<AudioFileDto[]> {
+  return getJson<AudioFileDto[]>("/api/audios", signal);
+}
+
+export function getSummary(id: string, signal?: AbortSignal): Promise<AudioSummaryDto> {
+  return getJson<AudioSummaryDto>(`/api/audios/${id}/summary`, signal);
 }

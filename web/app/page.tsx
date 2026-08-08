@@ -6,16 +6,19 @@ import { CompletedDialog } from "@/components/transcription/CompletedDialog";
 import { ConfirmRestartDialog } from "@/components/transcription/ConfirmRestartDialog";
 import { FailedDialog } from "@/components/transcription/FailedDialog";
 import { PlayerBar } from "@/components/transcription/PlayerBar";
+import { ProcessedList } from "@/components/transcription/ProcessedList";
 import { SettingsPanel } from "@/components/transcription/SettingsPanel";
 import { Sidebar } from "@/components/transcription/Sidebar";
 import { Thread } from "@/components/transcription/Thread";
 import { Topbar } from "@/components/transcription/Topbar";
 import { UploadDialog } from "@/components/transcription/UploadDialog";
+import { useProcessedAudios } from "@/lib/useProcessedAudios";
 import { useTranscription } from "@/lib/useTranscription";
 
 export default function TranscriptionScreen() {
   const session = useTranscription();
   const { phase, error, file, summary, audio } = session;
+  const processed = useProcessedAudios(phase);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
@@ -63,23 +66,32 @@ export default function TranscriptionScreen() {
       <Sidebar className="hidden xl:flex" />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Topbar phase={phase} onRestart={() => setRestartOpen(true)} />
-        <div className="min-h-0 flex-1 overflow-y-auto px-10 py-8">
-          <Thread
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-10 py-8">
+          <div className="flex min-h-0 shrink-0 grow basis-auto flex-col">
+            <Thread
+              phase={phase}
+              progress={session.progress}
+              file={file}
+              audio={session.audio}
+              summary={summary}
+              error={error}
+              messages={session.messages}
+              onRetry={() => {
+                setFailedOpen(false);
+                void session.retry();
+              }}
+              onSendAnother={() => {
+                setFailedOpen(false);
+                session.reset();
+              }}
+            />
+          </div>
+          <ProcessedList
+            audios={processed.audios}
+            loading={processed.loading}
+            error={processed.error}
             phase={phase}
-            progress={session.progress}
-            file={file}
-            audio={session.audio}
-            summary={summary}
-            error={error}
-            messages={session.messages}
-            onRetry={() => {
-              setFailedOpen(false);
-              void session.retry();
-            }}
-            onSendAnother={() => {
-              setFailedOpen(false);
-              session.reset();
-            }}
+            onReload={processed.reload}
           />
         </div>
         <PlayerBar file={file} />

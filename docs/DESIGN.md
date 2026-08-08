@@ -214,6 +214,13 @@ The app is a **three-column shell at a fixed 1440×900 design frame**, not a cen
 | `{layout.center}` | fluid (880px at 1440) | Fills remaining space. Contains topbar (64px), chat body (fluid, scrolls), player bar (84px). |
 | `{layout.panel}` | 320px | Fixed. Controls only. |
 
+- **Center column body regions**: the scrolling body of `{layout.center}` stacks exactly two
+  regions, in this order — the **thread region** (`{component.message-row}` list) and the
+  **processed region** (`{component.processed-section}`). They are separated by `{spacing.12}`
+  and the processed region's own 1px `{colors.surface.hairline}` top border. Both regions cap
+  their content at `{layout.bubble}` and align to the same left edge, so the page reads as one
+  measure, not two. No third region may be added to this body without a new pass on this
+  document.
 - **Message max width**: `{layout.bubble}` = 624px. Bubbles do not stretch to the full center
   column — a 900px-wide line of summary text is unreadable, and the fixed measure keeps the thread
   looking like a thread at any viewport.
@@ -247,9 +254,14 @@ read as a compact instrument cluster, while the thread should read as content wi
 The chat body keeps 32px of vertical padding and 40px horizontal even when a single message is
 present, so the first message never looks pinned to the chrome.
 
-Empty space in the thread is a feature, not a gap to fill. After a `Completed` summary the thread
-does not backfill with suggestions, related files, or export options — the screen's job is done and
-it shows that by staying empty below the last message.
+Empty space in the thread is a feature, not a gap to fill. After a `Completed` summary the **thread
+region** does not backfill with suggestions, related files, or export options — the session's job is
+done and it shows that by staying empty below the last message.
+
+That rule is scoped to the thread region. The **processed region** below it is not backfill: it is a
+second, separately-headed region showing state that lives on the server and survives a reload,
+whereas the thread shows only the session in this tab. The two are told apart by the hairline, the
+`{spacing.12}` gap and the `{type.heading}` section title — never by mixing rows.
 
 ---
 
@@ -450,19 +462,122 @@ percentage for work the API does not measure.
 note glyph in `{colors.brand.text}`, `{type.heading}` headline "Nenhum áudio ainda",
 `{type.body}` subline in `{colors.text.secondary}` capped at 360px and centered.
 
+### Processed List
+
+The read-only list of every audio the server has stored, newest first, each row carrying **that
+audio's summary as its body**. It renders server state, not session state: it survives a reload and
+it is never appended to by the client. Nothing in it is interactive except the section-level retry
+control, so **no card in this family has a hover, pressed or focus state** — §7's hover policy
+applies to interactive surfaces only.
+
+**`{component.processed-section}`** — vertical stack, width `{layout.bubble}` max, gap
+`{spacing.4}`, 1px top `{colors.surface.hairline}` border, padding-top `{spacing.8}`. First child is
+`{component.processed-header}`; second is the card list at `{spacing.3}` row gap.
+
+**`{component.processed-header}`** — horizontal row, gap `{spacing.2}`, align center:
+`{type.heading}` Semi Bold title in `{colors.text.primary}`, then a `{component.badge-mono}`
+carrying the item count. No action buttons — the list has nothing to act on.
+
+**`{component.processed-card}`** — the resting/neutral card and the base every variant inherits:
+background `{colors.surface.muted}`, 1px `{colors.surface.hairline}`, radius `{rounded.md}`,
+padding `{spacing.3}` `{spacing.4}`, internal gap `{spacing.2}`, `{size.accent-rail}` left rail
+in `transparent`. The transparent rail is not decoration, it is alignment: every variant carries a
+3px left border so the text of a summarized card and the text of a compressing card start on the
+same vertical line. `{component.nav-item}` uses the same device.
+
+Structure, in order, in every variant:
+
+1. **`{component.processed-card-header}`** — horizontal row, gap `{spacing.3}`, align center:
+   `{size.file-tile}` `{rounded.sm}` `{colors.brand.soft}` tile with a note glyph in
+   `{colors.brand.text}`; a flexible two-line stack (`min-width: 0`) of the original file name
+   (`{type.label}` Semi Bold `{colors.text.primary}`, ellipsis-truncated) over a `{type.caption}`
+   metadata line in `{colors.text.secondary}` reading size · format · creation date; then the
+   card's `{component.status-chip}` variant, right-aligned and non-shrinking.
+2. **Body** — one of the five variants below.
+3. **Footer** — only `{component.processed-card-summary}` has one.
+
+**`{component.processed-card-compressing}`** — base surface. Body is a single row, gap
+`{spacing.2}`: a `{size.glyph-circle-sm}` `{colors.semantic.info-soft}` circle with a glyph in
+`{colors.semantic.info}`, a `{type.body}` Medium action line in `{colors.text.primary}`, and a
+right-aligned `{type.mono}` literal `ProcessingStatus` value in `{colors.text.secondary}`.
+Left rail `{colors.semantic.info}` (6.83:1 on `{colors.surface.muted}`). Chip
+`{component.status-chip-compressing}`. **No `{component.progress-bar}`**: the server measures
+neither stage, so the row shows the literal status word and nothing that could be read as a
+quantity — §8 Don't 3. The bar stays a thread-only component, where a single live session justifies
+its weight.
+
+**`{component.processed-card-summarizing}`** — identical to `{component.processed-card-compressing}`
+in every property, except the action line copy and the chip, which is
+`{component.status-chip-summarizing}`, and the literal word, which is the `SummaryStatus` value.
+
+**`{component.processed-card-summary}`** — background `{colors.surface.canvas}`, 1px
+`{colors.surface.hairline}`, left rail `{colors.brand.primary}` (3.12:1 on
+`{colors.surface.canvas}` — the exact pair §2 blesses as a graphical object; the rail is **not**
+legal on `{colors.surface.muted}`, which is why this variant alone changes surface). Chip
+`{component.status-chip-completed}`. Body is the summary text in `{type.body-lg}`
+`{colors.text.primary}` — the one 14px block in the card, and the only text in the family allowed
+to exceed two lines. Footer row, gap `{spacing.2}`, wrapping: `{component.badge-mono}` with the
+detected language, then `{type.mono}` `"201 / 500 caracteres"` in `{colors.text.secondary}`.
+
+The summary is **never clamped and never behind a disclosure**. 500 characters is ~6 lines at
+`{type.body-lg}` across `{layout.bubble}`; a "ver mais" control would be a new interaction with no
+motion, focus or expanded-state entry in this document, and the visible character count already
+tells the reader how much text there is. The card grows; the list scrolls.
+
+**`{component.processed-card-failed}`** — background `{colors.semantic.danger-soft}`, 1px
+`{colors.semantic.danger-border}`, left rail `{colors.semantic.danger}` (5.03:1 on its soft tint).
+Chip `{component.status-chip-failed}`. Body: a `{type.body}` Semi Bold title in
+`{colors.semantic.danger}`, then a `{component.code-line}` carrying the raw server error string.
+It takes the same surface language as `{component.bubble-error}` but **no action row**: there is no
+reprocess endpoint, and a "Tentar novamente" that re-uploads a file the browser no longer holds
+would be a promise the product cannot keep.
+
+**`{component.processed-card-disabled}`** — base surface, left rail `transparent`, chip
+`{component.status-chip-disabled}`. Body is a single row: `{type.body}` in
+`{colors.text.primary}` plus a right-aligned `{type.mono}` `Disabled` in
+`{colors.text.secondary}`. It is the neutral card by construction — `Disabled` means the server
+was configured not to summarize, which is not an outcome and never renders red (§8, §2).
+
+**`{component.processed-empty}`** — a `{component.empty-state}` instance placed inside
+`{component.processed-section}`. It is centered horizontally and sized to its content, not to the
+region's height, because the region has no height of its own to center in.
+
+**`{component.processed-loading}`** — first load only, before any row exists: a single
+`{type.body}` line in `{colors.text.secondary}`, left-aligned under the header, with the container
+`aria-busy`. No skeleton shapes: this document defines no skeleton component and a grey block that
+imitates a card is a shape with no token.
+
+**`{component.processed-error}`** — the list itself failed to load: background
+`{colors.semantic.danger-soft}`, 1px `{colors.semantic.danger-border}`, radius `{rounded.md}`,
+padding `{spacing.3}` `{spacing.4}`, gap `{spacing.2}`, no left rail. A `{type.body}` line in
+`{colors.text.primary}` and a `{component.button-ghost}` retry. This is the only focusable element
+the region ever contains, and unlike a card the retry here **is** honest: re-issuing the GET is
+something the client can actually do.
+
 ### Status & Badges
 
 **`{component.status-chip}`** — pill, radius `{rounded.full}`, padding `{spacing.1}`
-`{spacing.3}`, 6px dot + `{type.label}` Medium. Six variants, one per state the screen can be in:
+`{spacing.3}`, 6px dot + `{type.label}` Medium. Eight variants, one per state a surface can be in:
 
 | Variant | Dot / label color | Background | Copy |
 |---------|------------------|------------|------|
 | `{component.status-chip-idle}` | `{colors.text.secondary}` | `{colors.surface.muted}` | "Aguardando arquivo" |
 | `{component.status-chip-uploading}` | `{colors.brand.text}` | `{colors.brand.soft}` | "Enviando…" |
 | `{component.status-chip-processing}` | `{colors.semantic.info}` | `{colors.semantic.info-soft}` | "Processando" |
+| `{component.status-chip-compressing}` | `{colors.semantic.info}` | `{colors.semantic.info-soft}` | "Comprimindo" |
+| `{component.status-chip-summarizing}` | `{colors.semantic.info}` | `{colors.semantic.info-soft}` | "Resumindo" |
 | `{component.status-chip-completed}` | `{colors.semantic.success}` | `{colors.semantic.success-soft}` | "Concluído" |
 | `{component.status-chip-failed}` | `{colors.semantic.danger}` | `{colors.semantic.danger-soft}` | "Falhou" |
 | `{component.status-chip-disabled}` | `{colors.text.secondary}` | `{colors.surface.muted}` | "Resumo desativado" |
+
+`{component.status-chip-compressing}` and `{component.status-chip-summarizing}` exist because the
+server runs **two** background stages (`ProcessingStatus` then `SummaryStatus`) and "Processando"
+alone cannot say which one is running. They share the info pair rather than inventing a hue —
+§8 Don't 6 — and they follow the same rule §2 states for the topbar chip: `Pending` and
+`Processing` collapse into **one** chip per stage, because from the user's side both mean "the
+server is working on it". The distinction stays where it is actionable, as the literal API word in
+`{type.mono}` inside the surface. `{component.status-chip-processing}` remains the topbar's chip
+for a live session; the two new variants are used only by `{component.processed-card}`.
 
 `Disabled` (the API's `Summarization:Enabled = false`) is **not a failure**: the upload succeeded
 and the file is stored, the server simply does not summarize. It therefore reuses the neutral
@@ -667,6 +782,13 @@ its measured ratio in §2.
   pt") visible on the trigger while collapsed.
 - **Thread**: bubbles go full-width minus `{spacing.4}` gutters below `{bp.mobile}`; the message
   header stays a single row (glyph + author + timestamp) and the timestamp truncates first.
+- **Processed list**: never collapses and never moves column. It stays stacked under the thread
+  region at every breakpoint, because it is content and the only two places it could go —
+  `{layout.rail}` (240px, dark, identity only) and `{layout.panel}` (320px, controls only) — are
+  both wrong surfaces for a 500-character body block. At `{bp.mobile}` the cards go full-width
+  minus `{spacing.4}` gutters, the region's top padding steps `{spacing.8}` → `{spacing.4}`, and
+  `{component.processed-card-header}` wraps so the `{component.status-chip}` sits on its own line
+  under the metadata rather than squeezing the file name.
 - **Player**: at `{bp.mobile}` the `{component.waveform}` is hidden and the card keeps play +
   elapsed/duration + speed only. It never wraps to two rows.
 - **Dialogs**: at `{bp.mobile}` they become full-width sheets with `height: 100dvh`, compact
@@ -733,8 +855,17 @@ scale below 20px.
   nav that leads nowhere is a broken promise. Error surfaces for rejected files (wrong extension,
   > 50 MB, 422 "not decodable as audio") are named in copy but still have no dedicated dialog —
   they surface through `{component.bubble-error}`.
-- **Multi-file / multi-session behavior is undefined.** The thread models exactly one audio at a
-  time; queueing several uploads, or returning to a previous audio's summary, has no design.
+- **Multi-file / multi-session behavior is only half designed.** The thread still models exactly
+  one audio at a time, and queueing several uploads has no design. Reading back previous audios
+  **is** designed now — §7 Processed List — but only as a read-only region: there is no way to
+  reopen a past audio in the thread, no way to play it (the player holds the locally selected
+  file), and no way to reprocess it. Those need endpoints the API does not have.
+- **The processed list has no pagination and no sort control.** It renders every row
+  `GET /api/audios` returns, in the order the API returns them (newest first). At a few hundred
+  rows that is a long scroll with no affordance to narrow it; a filter or a page control is a new
+  `/darkdesign` pass, not a code decision.
+- **The processed list is not drawn in Figma.** Like the four breakpoints, §7's Processed List
+  entries are specified in prose only; no frame exists for them.
 - **The waveform has no real data source.** The API exposes no peak data, so the drawn bars are
   proportional decoration. §7 forbids re-randomizing them, but the derivation from actual audio
   peaks is not specified.
