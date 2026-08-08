@@ -36,7 +36,14 @@ interface CtaSpec {
   disabled: boolean;
 }
 
-function ctaFor(phase: Phase, hasFile: boolean): CtaSpec {
+/**
+ * Returns null when the panel has no action of its own. On `failed` the only actions that make
+ * sense are "Tentar novamente" and "Enviar outro áudio", and the thread's error bubble already
+ * offers both, side by side, next to the message that explains the failure. A third copy down
+ * here duplicated the accessible name of a control the user was already looking at.
+ * (The Figma does draw a panel CTA on frame 05 — node 5:503 — so this is a deliberate departure.)
+ */
+function ctaFor(phase: Phase, hasFile: boolean): CtaSpec | null {
   switch (phase) {
     case "idle":
       return { label: "Transcrever", loading: false, disabled: !hasFile };
@@ -50,7 +57,7 @@ function ctaFor(phase: Phase, hasFile: boolean): CtaSpec {
     case "disabled":
       return { label: "Enviar outro áudio", loading: false, disabled: false };
     case "failed":
-      return { label: "Tentar novamente", loading: false, disabled: false };
+      return null;
   }
 }
 
@@ -149,14 +156,16 @@ export function SettingsPanel({
 
       <div className="flex-1" />
       <div className="flex flex-col gap-3">
-        <Button
-          fullWidth
-          loading={cta.loading}
-          disabled={cta.disabled}
-          onClick={onSubmit}
-        >
-          {cta.label}
-        </Button>
+        {cta ? (
+          <Button
+            fullWidth
+            loading={cta.loading}
+            disabled={cta.disabled}
+            onClick={onSubmit}
+          >
+            {cta.label}
+          </Button>
+        ) : null}
         <span className="text-center text-caption text-text-secondary">
           {helperFor(phase, file !== null)}
         </span>

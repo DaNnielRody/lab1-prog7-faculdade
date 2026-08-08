@@ -269,8 +269,12 @@ export function Thread({
                 summaryStatus: &quot;Failed&quot;
                 {error ? ` · ${error}` : null}
               </CodeLine>
+              {/* Figma "actions" (5:527): both controls are 35px — button-primary-sm next to
+                  button-ghost-sm. A default-size primary here is taller than its neighbour. */}
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={onRetry}>Tentar novamente</Button>
+                <Button size="sm" onClick={onRetry}>
+                  Tentar novamente
+                </Button>
                 <Button variant="ghost" onClick={onSendAnother}>
                   Enviar outro áudio
                 </Button>

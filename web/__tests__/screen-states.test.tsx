@@ -141,7 +141,10 @@ describe("screen states", () => {
     expect(screen.getByText("Não foi possível transcrever este áudio")).toBeInTheDocument();
     expect(screen.getByText(failure)).toBeInTheDocument();
 
-    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(2);
+    // Uma só: a do balão de erro do thread. O painel não repete a ação que está logo ali,
+    // ao lado da mensagem que explica a falha.
+    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Enviar outro áudio" })).toBeInTheDocument();
     expect(screen.getByText("Falhou")).toBeInTheDocument();
   });
 
@@ -193,8 +196,9 @@ describe("screen states", () => {
     // …e a região da lista não desenha nada: nem seção, nem divisor, nem cabeçalho.
     expect(screen.queryByRole("heading", { name: "Áudios processados" })).not.toBeInTheDocument();
 
-    // "Tentar novamente" continua significando uma coisa só: repetir a transcrição.
-    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(2);
+    // "Tentar novamente" continua significando uma coisa só: repetir a transcrição — e agora
+    // aparece uma vez só, no balão de erro.
+    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(1);
 
     // O toast é neutro: o único tratamento de danger da tela continua sendo o do thread.
     expect(toast.querySelector(".bg-danger-soft")).toBeNull();

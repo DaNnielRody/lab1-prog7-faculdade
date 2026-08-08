@@ -119,4 +119,46 @@ describe("Thread — áudios já processados", () => {
 
     expect(screen.getByText(/aguardando o resumo/)).toBeInTheDocument();
   });
+
+  it("mostra o motivo que o servidor deu para a falha de resumo", () => {
+    renderThread([
+      audio({
+        summaryStatus: "Failed",
+        summary: null,
+        summaryError: "O worker de resumo está indisponível.",
+      }),
+    ]);
+
+    expect(screen.getByText("O worker de resumo está indisponível.")).toBeInTheDocument();
+    expect(screen.queryByText("O servidor não informou o motivo.")).not.toBeInTheDocument();
+  });
+});
+
+describe("Thread — ações do balão de erro da sessão", () => {
+  // Figma "actions" (5:527): button-primary-sm e button-ghost-sm têm a mesma caixa. Um primary
+  // de tamanho padrão ao lado de um ghost fica mais alto — foi o que apareceu na tela.
+  it("renderiza os dois botões com a mesma métrica", () => {
+    render(
+      <Thread
+        phase="failed"
+        progress={0}
+        file={null}
+        audio={null}
+        summary={null}
+        error="O worker não conseguiu transcrever o áudio."
+        messages={[{ id: "m1", author: "system", phase: "failed", createdAt: 0 }]}
+        processed={[]}
+        onRetry={vi.fn()}
+        onSendAnother={vi.fn()}
+      />,
+    );
+
+    const retry = screen.getByRole("button", { name: "Tentar novamente" });
+    const another = screen.getByRole("button", { name: "Enviar outro áudio" });
+
+    for (const metric of ["px-4", "py-2", "text-label", "rounded-full"]) {
+      expect(retry.className).toContain(metric);
+      expect(another.className).toContain(metric);
+    }
+  });
 });
