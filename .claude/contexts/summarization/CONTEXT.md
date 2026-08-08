@@ -4,10 +4,10 @@ Turns a stored audio file into a short text summary (**≤ 500 characters, hard 
 lightweight local AI model (Whisper) running on a private worker. Source: the stored `.m4a` bytes
 → sink: the `Summary`/`SummaryStatus`/`SummaryLanguage` columns of the `AudioFile` row.
 
-**This is the area that introduced threading to the project.** Compression is fast and
-out-of-process (see [Compression](../compression/CONTEXT.md)); summarization is slow, remote and
-failure-prone, so it runs off the request thread on a bounded queue. Rationale:
-`docs/week3-threading-explanation.md`.
+**This is the area that introduced threading to the project** (week 3). Week 4 gave compression
+the same treatment, so this is now the *second* stage of a two-stage background pipeline — see
+[Compression](../compression/CONTEXT.md) and `docs/week4-threading-pipeline.md`. Rationale for
+this stage: `docs/week3-threading-explanation.md`.
 
 Files:
 - `src/AudioApi/Summarization/IAudioSummarizer.cs` — contract + `AudioSummary` record.
@@ -33,8 +33,10 @@ The full verbatim speech-to-text output from Whisper. It lives only inside the w
 _Avoid_: text, transcription result, summary
 
 **Summarization job**:
-One `Guid` on the `ISummaryQueue` channel. Enqueued by the upload endpoint, consumed by
-`AudioSummaryBackgroundService`. Carries only the id — the worker re-reads bytes and DB state.
+One `Guid` on the `ISummaryQueue` channel. **Enqueued by the compression worker** (week 4; it used
+to be the upload endpoint), after the `.m4a` row commits — there is nothing to summarize before
+that. Consumed by `AudioSummaryBackgroundService`. Carries only the id — the worker re-reads bytes
+and DB state.
 _Avoid_: task, message, event
 
 **SummaryStatus**:
@@ -58,10 +60,14 @@ _Avoid_: truncate, trim, cut (as identifiers — `Trim` means whitespace only)
 ## Relationships
 
 - One **AudioFile** has at most one **Summary** (inline columns, not a table).
-- **API → queue → background service → worker → Persistence.** The upload response never
-  contains a summary; it reports `Pending`.
+- **API → compression queue → compression worker → summary queue → this service → worker →
+  Persistence.** The upload response never contains a summary; it reports `Pending`.
+- A compression failure short-circuits this stage: the compression worker writes
+  `SummaryStatus = Failed` itself and never enqueues, because no `.m4a` will ever exist.
 - The background service resolves a **fresh DI scope** per job (`IServiceScopeFactory`) because
   `AppDbContext` is scoped and the request scope is long gone.
+- Its `SaveChangesAsync` calls now go through `IDbWriteGate` — it is no longer the only background
+  writer, and SQLite admits one writer. See [Persistence](../persistence/CONTEXT.md).
 - The background service reads bytes via `IFileStore.OpenReadAsync` (singleton, safe) —
   it does **not** receive the upload stream.
 - Concurrency is capped by `Summarization:MaxConcurrency` (default **1**): the worker VPS has

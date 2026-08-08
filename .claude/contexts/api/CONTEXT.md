@@ -24,9 +24,11 @@ valid. It is a *pre-flight* check on name/content-type/size only; it never decod
 _Avoid_: ValidationResult, error code
 
 **Decode failure**:
-The audio passed validation but `ffmpeg` could not decode it → **422 Unprocessable Entity**.
-Distinct from a validation error (**400**).
-_Avoid_: invalid file, bad request
+The audio passed validation but `ffmpeg` could not decode it. **Since week 4 this is no longer a
+422** — the request does not decode anything, so it cannot know. It surfaces as
+`ProcessingStatus = Failed` + `ProcessingError` on the row (and `SummaryStatus = Failed`), while
+the upload itself stays **201**. Same treatment week 3 gave summarization failures, same reason.
+_Avoid_: invalid file, bad request, 422
 
 **AudioFileDto**:
 The full metadata projection of an `AudioFile`, including the summary fields.
@@ -48,10 +50,14 @@ _Avoid_: cors config, allow-all
 
 ## Relationships
 
-- An **Upload** produces exactly one **AudioFile** row and enqueues exactly one
-  **summarization job**.
-- The **Upload** response always reports `summaryStatus = Pending` (or `Disabled`) — the
-  summary is never ready inside the request. Clients poll `GET /api/audios/{id}/summary`.
+- An **Upload** produces exactly one **AudioFile** row and enqueues exactly one **compression
+  job**. The *summarization* job is enqueued later, by the compression worker, only after
+  compression commits — nothing can be summarized before the `.m4a` exists.
+- The **Upload** response always reports `processingStatus = Pending` and
+  `summaryStatus = Pending` (or `Disabled`). Neither the `.m4a` nor the summary exists inside the
+  request: the response still carries the **original** `storedFileName`/`contentType`/`sizeBytes`.
+  Clients poll `GET /api/audios/{id}` or `GET /api/audios/{id}/summary`, both of which carry
+  `processingStatus`.
 - `MaxSizeBytes` (`UploadOptions`) drives the Kestrel `MaxRequestBodySize` and the
   `FormOptions.MultipartBodyLengthLimit`, both set to `MaxSizeBytes + 1 MiB` in `Program.cs`.
 
@@ -59,10 +65,10 @@ _Avoid_: cors config, allow-all
 
 | Method | Route | Notes |
 |--------|-------|-------|
-| POST | `/api/audios` | 201 / 400 validation / 422 undecodable |
-| GET | `/api/audios` | list, newest first |
+| POST | `/api/audios` | 201 / 400 validation. **No 422** — undecodable audio fails in the background |
+| GET | `/api/audios` | list, newest first. Consumed by the web client's "Áudios processados" list |
 | GET | `/api/audios/{id:guid}` | 200 `AudioFileDto` / 404 |
-| GET | `/api/audios/{id:guid}/download` | streams the stored `.m4a` / 404 |
+| GET | `/api/audios/{id:guid}/download` | streams whatever the row points at — the original while `ProcessingStatus` is `Pending`/`Processing`, the `.m4a` after / 404 |
 | GET | `/api/audios/{id:guid}/summary` | 200 `AudioSummaryDto` / 404 |
 | GET | `/health` | liveness |
 
@@ -72,4 +78,9 @@ Todas as rotas respondem sob a política de CORS `Frontend` (origens de `Cors:Al
 
 - "summary length" always means **characters** (`string.Length`, UTF-16 code units), never
   words or tokens. The 500 ceiling is a character ceiling.
-- 400 vs 422 is a real distinction and load-bearing in tests — do not collapse them.
+- 400 is still load-bearing: `AudioFileValidator` is a pre-flight check on name/content-type/size
+  that decodes nothing, so it stays inside the request. **422 is gone from this API** — do not
+  reintroduce it on the upload path without moving decoding back into the request, which is the
+  whole thing week 4 undid.
+- `GET /{id}/download` must never 404 for a row that exists and is mid-pipeline. The compression
+  worker guarantees this by committing the row *before* deleting the original.

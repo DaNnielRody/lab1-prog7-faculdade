@@ -27,21 +27,25 @@ document for this repo: every `/darkagent` run opens this file first.
 
 - [API](../contexts/api/CONTEXT.md) — HTTP surface: upload, metadata, download, summary. Validation + ProblemDetails.
 - [Storage](../contexts/storage/CONTEXT.md) — `IFileStore` binary persistence + resolvable URL.
-- [Compression](../contexts/compression/CONTEXT.md) — `IAudioCompressor`, ffmpeg → AAC/`.m4a`.
+- [Compression](../contexts/compression/CONTEXT.md) — `IAudioCompressor`, ffmpeg → AAC/`.m4a`, on its own background queue.
 - [Summarization](../contexts/summarization/CONTEXT.md) — `IAudioSummarizer` + background queue → Whisper worker.
 - [Persistence](../contexts/persistence/CONTEXT.md) — EF Core/SQLite, `AudioFile` entity.
 - [Frontend](../contexts/frontend/CONTEXT.md) — Next.js client in `web/`: upload, phase machine, thread, player.
 
 ## Relationships
 
-- **API → Compression → Storage → Persistence**: `UploadAsync` validates, transcodes to AAC,
-  writes the compressed bytes only, then saves the `AudioFile` row.
-- **API → Summarization**: upload enqueues the audio id; the request does **not** wait.
-  `GET /api/audios/{id}` and `/{id}/summary` read the summary state the worker wrote back.
-- **Summarization → Storage**: the background worker re-reads the stored `.m4a` through
-  `IFileStore.OpenReadAsync` — it never receives the request's stream (request scope is gone).
-- **Summarization → Persistence**: the worker owns its own DI scope + `AppDbContext`
-  (the request's scoped context is disposed by then).
+- **API → Storage → Persistence**: `UploadAsync` validates, writes the **original** bytes, saves
+  the `AudioFile` row (`ProcessingStatus = Pending`) and returns 201. It runs no ffmpeg.
+- **API → Compression**: upload enqueues the audio id on `IProcessingQueue`; the request does
+  **not** wait. The worker transcodes, replaces the stored file with the `.m4a`, rewrites
+  `StoredFileName`/`ContentType`/`SizeBytes`/`Url`, commits, then deletes the original.
+- **Compression → Summarization**: the compression worker enqueues the summarization job, and
+  only after its own commit — nothing is summarizable before the `.m4a` exists. A compression
+  failure writes `SummaryStatus = Failed` directly and enqueues nothing.
+- **Both workers → Storage**: they re-read bytes through `IFileStore.OpenReadAsync` — they never
+  receive the request's stream (request scope is gone).
+- **Both workers → Persistence**: each owns its own DI scope + `AppDbContext`, and both route
+  `SaveChangesAsync` through `IDbWriteGate` (SQLite admits one writer).
 - **Frontend → API**: the browser uploads to `POST /api/audios` and polls
   `GET /api/audios/{id}/summary`. Cross-origin, so the API carries a CORS policy
   (`Options/CorsOptions.cs`); without an allowed origin every call dies pre-handler.
@@ -51,7 +55,12 @@ document for this repo: every `/darkagent` run opens this file first.
 ## Engineering policy (Conservador — dark-factory default)
 
 - **Replicate existing patterns**, don't invent:
-  - Feature = folder per concern: `Compression/`, `Storage/`, `Validation/`, `Summarization/`.
+  - Feature = folder per concern: `Compression/`, `Storage/`, `Validation/`, `Summarization/`,
+    `Processing/`.
+  - Background work = bounded `Channel<Guid>` behind an interface + a `BackgroundService` with a
+    `SemaphoreSlim` cap, a fresh DI scope per job, and a per-job `try/catch` so one failure never
+    kills the loop. Two instances of this pattern exist (`Processing/`, `Summarization/`);
+    a third should look the same.
   - Interface + one implementation per concern (`IFileStore`/`LocalFileStore`,
     `IAudioCompressor`/`FfmpegAudioCompressor`, `IAudioSummarizer`/`WhisperAudioSummarizer`).
   - Config through `Options/<X>Options.cs` with `public const string SectionName`, bound in

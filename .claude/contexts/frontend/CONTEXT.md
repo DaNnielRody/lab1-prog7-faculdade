@@ -1,7 +1,8 @@
 # Frontend
 
-The browser client for the AudioApi. One screen: send an audio file, watch the server work, read
-the ≤500-character summary. Source: a `File` from the user → sink: rendered thread messages.
+The browser client for the AudioApi. One screen, two regions: send an audio file and watch the
+server work (the **thread**), then read every processed audio's summary (the **processed list**).
+Source: a `File` from the user + `GET /api/audios` → sink: rendered thread messages and list rows.
 
 Visual source of truth: **`docs/DESIGN.md`** (tokens + components). Never decide a visual value here.
 
@@ -10,8 +11,10 @@ Files:
 - `web/app/layout.tsx`, `web/app/globals.css` — fonts + DESIGN.md tokens as CSS variables.
 - `web/components/ui/*` — the primitive library (one file per `{component.x}` family).
 - `web/components/transcription/*` — screen-level composites (Sidebar, Topbar, Thread, SettingsPanel, PlayerBar, dialogs).
-- `web/lib/api.ts` — the only module that talks HTTP to the AudioApi.
-- `web/lib/useTranscription.ts` — the upload + polling state machine.
+- `web/components/transcription/ProcessedList.tsx` — the processed-audios list (one card per audio).
+- `web/lib/api.ts` — the only module that talks HTTP to the AudioApi (`uploadAudio`, `getSummary`, `listAudios`).
+- `web/lib/useTranscription.ts` — the upload + polling state machine for the current session.
+- `web/lib/useProcessedAudios.ts` — the list loader + poller for the processed region.
 - `web/lib/types.ts` — TS mirrors of `AudioFileDto` / `AudioSummaryDto`.
 
 ## Language
@@ -43,6 +46,22 @@ The interval that calls `GET /api/audios/{id}/summary` every 2s while the phase 
 `processing`, and stops on any terminal phase or after the 5-minute ceiling.
 _Avoid_: watcher, subscription
 
+**Processed list**:
+The second region of the screen, below the thread. One card per audio from `GET /api/audios`,
+each showing that audio's **summary** — or, when there is none yet, the reason (comprimindo /
+resumindo / falhou / desativado). Never an empty body. It is server state, not session state:
+it survives a reload and "Recomeçar", and it is read-only (no playback, no download, no retry —
+the API has no reprocess endpoint and the browser no longer holds the `File`).
+_Avoid_: history, sessions, feed
+
+**List poller**:
+The interval in `useProcessedAudios` that re-fetches every 2s (`POLL_INTERVAL_MS`, shared with
+`useTranscription` — one cadence for one set of server transitions) **only while some row is
+non-terminal**, and stops when all are terminal. No 5-minute ceiling: there is no session to time
+out. A poll returning unchanged data must render byte-identical strings, or the `aria-live` region
+announces on every tick.
+_Avoid_: refresh, auto-reload
+
 ## Relationships
 
 - **Frontend → API**: only through `web/lib/api.ts`. Components never call `fetch`/`XHR` directly.
@@ -71,3 +90,10 @@ _Avoid_: watcher, subscription
   indeterminate bar and the literal word `Processing`.
 - The player is playback-only; it plays the **locally selected file** via `URL.createObjectURL`,
   not the stored `.m4a`, so it works before/without a download round-trip. No download UI exists.
+  Consequence: a row in the processed list **cannot** be played — the browser has no `File` for it.
+- The API now has **two** background stages, so a row can be `summaryStatus: Pending` while nothing
+  is being summarized yet. `processingStatus` takes precedence when choosing what a row says:
+  while `ffmpeg` runs there is no `.m4a`, so "resumindo" would be a lie.
+- Any test that renders `TranscriptionScreen` **must mock `listAudios`**. The screen fetches the
+  list on mount; without the mock, jsdom issues a real network call whose success depends on
+  whether the dev happens to have the API running — which is exactly the flakiness it caused once.
