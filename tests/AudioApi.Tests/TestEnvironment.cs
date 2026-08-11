@@ -17,6 +17,8 @@ internal static class TestEnvironment
         Environment.SetEnvironmentVariable("Summarization__Enabled", "false");
         Environment.SetEnvironmentVariable("Summarization__MaxSummaryChars", null);
         Environment.SetEnvironmentVariable("Summarization__MaxConcurrency", null);
+        Environment.SetEnvironmentVariable("Processing__MaxConcurrency", null);
+        Environment.SetEnvironmentVariable("Processing__QueueCapacity", null);
 
         if (extra is null)
         {

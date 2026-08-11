@@ -9,7 +9,17 @@ function apiHost(baseUrl: string): string {
   }
 }
 
-export function Sidebar({ className }: { className?: string }) {
+export interface SidebarProps {
+  /**
+   * Whether the client's last request to the API succeeded. The card reports *our last attempt* —
+   * there is no health endpoint and none is implied, which is why the unreachable copy is
+   * "sem resposta" and not "offline".
+   */
+  apiReachable?: boolean;
+  className?: string;
+}
+
+export function Sidebar({ apiReachable = true, className }: SidebarProps) {
   return (
     <nav
       aria-label="Navegação principal"
@@ -42,8 +52,14 @@ export function Sidebar({ className }: { className?: string }) {
       <div className="flex-1" />
       <div className="flex flex-col gap-1 rounded-sm bg-rail-raised p-3">
         <span className="flex items-center gap-2 text-label text-rail-text">
-          <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-success" />
-          API online
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              apiReachable ? "bg-success" : "bg-rail-muted",
+            )}
+          />
+          {apiReachable ? "API online" : "API sem resposta"}
         </span>
         <span className="truncate font-mono text-mono text-rail-muted">{apiHost(API_BASE_URL)}</span>
       </div>

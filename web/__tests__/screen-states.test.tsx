@@ -3,16 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import TranscriptionScreen from "@/app/page";
-import { getSummary, uploadAudio } from "@/lib/api";
+import { ApiError, getSummary, listAudios, uploadAudio } from "@/lib/api";
 import type { AudioFileDto, AudioSummaryDto, SummaryStatus } from "@/lib/types";
 
+// `listAudios` é mockado porque a tela passou a carregar a lista de áudios processados ao montar.
+// Sem o mock, o jsdom faria uma chamada de rede real à API — estes testes são sobre o thread.
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, uploadAudio: vi.fn(), getSummary: vi.fn() };
+  return { ...actual, uploadAudio: vi.fn(), getSummary: vi.fn(), listAudios: vi.fn() };
 });
 
 const uploadAudioMock = vi.mocked(uploadAudio);
 const getSummaryMock = vi.mocked(getSummary);
+const listAudiosMock = vi.mocked(listAudios);
 
 const AUDIO_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 const SUMMARY_TEXT =
@@ -87,6 +90,8 @@ describe("screen states", () => {
   beforeEach(() => {
     uploadAudioMock.mockReset();
     getSummaryMock.mockReset();
+    listAudiosMock.mockReset();
+    listAudiosMock.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -136,7 +141,10 @@ describe("screen states", () => {
     expect(screen.getByText("Não foi possível transcrever este áudio")).toBeInTheDocument();
     expect(screen.getByText(failure)).toBeInTheDocument();
 
-    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(2);
+    // Uma só: a do balão de erro do thread. O painel não repete a ação que está logo ali,
+    // ao lado da mensagem que explica a falha.
+    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Enviar outro áudio" })).toBeInTheDocument();
     expect(screen.getByText("Falhou")).toBeInTheDocument();
   });
 
@@ -159,5 +167,62 @@ describe("screen states", () => {
     expect(document.querySelector(".bg-danger-soft")).toBeNull();
     expect(document.querySelector(".border-danger-border")).toBeNull();
     expect(document.querySelector(".text-danger")).toBeNull();
+  });
+
+  // GET /api/audios não é paginado. Abrir a conversa com o histórico inteiro faz o usuário rolar
+  // por todo áudio antigo antes de chegar na sessão que acabou de começar.
+  it("abre a conversa com no máximo os 10 áudios mais recentes", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...audioDto("Completed"),
+      id: `audio-${i}`,
+      originalFileName: `audio-${i}.mp3`,
+      summary: `Resumo do áudio ${i}.`,
+    }));
+    listAudiosMock.mockResolvedValue(many);
+
+    render(<TranscriptionScreen />);
+    vi.useRealTimers();
+
+    // A API devolve mais novo primeiro, então os 10 mantidos são os índices 0..9.
+    expect(await screen.findByText("Resumo do áudio 0.")).toBeInTheDocument();
+    expect(screen.getByText("Resumo do áudio 9.")).toBeInTheDocument();
+    expect(screen.queryByText("Resumo do áudio 10.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resumo do áudio 24.")).not.toBeInTheDocument();
+  });
+
+  // Regressão: com a API fora do ar, a sessão E a lista falham pela mesma causa. A lista não pode
+  // reportar o mesmo fracasso uma segunda vez em vermelho, nem reusar o nome de um botão que faz
+  // outra coisa. Encontrado abrindo a tela no navegador, não por teste.
+  it("does not let the processed list echo the thread when the whole API is unreachable", async () => {
+    const failure = "Não foi possível falar com o servidor. Verifique se a API está no ar.";
+    const releaseUpload = deferUpload();
+    getSummaryMock.mockResolvedValue(summaryDto("Failed", { error: failure }));
+    listAudiosMock.mockRejectedValue(new ApiError(failure, 0));
+
+    const user = userEvent.setup();
+    render(<TranscriptionScreen />);
+    await selectAndSubmit(user);
+
+    await releaseUpload(audioDto("Pending"));
+    await tick();
+    vi.useRealTimers();
+
+    await closeOutcomeDialog(user);
+
+    // O aviso vai para o toast, que é fixo e não ocupa fluxo…
+    const toast = screen.getByRole("status");
+    expect(toast).toHaveTextContent("Não foi possível carregar os áudios processados.");
+    expect(screen.getByRole("button", { name: "Recarregar a lista" })).toBeInTheDocument();
+
+    // …e a região da lista não desenha nada: nem seção, nem divisor, nem cabeçalho.
+    expect(screen.queryByRole("heading", { name: "Áudios processados" })).not.toBeInTheDocument();
+
+    // "Tentar novamente" continua significando uma coisa só: repetir a transcrição — e agora
+    // aparece uma vez só, no balão de erro.
+    expect(screen.getAllByRole("button", { name: "Tentar novamente" })).toHaveLength(1);
+
+    // O toast é neutro: o único tratamento de danger da tela continua sendo o do thread.
+    expect(toast.querySelector(".bg-danger-soft")).toBeNull();
+    expect(toast.querySelector(".text-danger")).toBeNull();
   });
 });

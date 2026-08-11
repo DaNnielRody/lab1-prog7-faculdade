@@ -68,6 +68,10 @@
   --spacing-rail: 240px;
   --spacing-panel: 320px;
   --spacing-bubble: 624px;
+  /* {layout.player-bar} — a token because a second component depends on it: {component.toast}
+     anchors above the player bar and must not re-derive the number. */
+  --spacing-player-bar: 84px;
+
 }
 
 html,

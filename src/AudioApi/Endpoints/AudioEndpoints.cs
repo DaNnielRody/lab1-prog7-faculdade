@@ -1,10 +1,9 @@
-using AudioApi.Compression;
 using AudioApi.Data;
 using AudioApi.Dtos;
 using AudioApi.Models;
 using AudioApi.Options;
+using AudioApi.Processing;
 using AudioApi.Storage;
-using AudioApi.Summarization;
 using AudioApi.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -15,6 +14,8 @@ namespace AudioApi.Endpoints;
 
 public static class AudioEndpoints
 {
+    private const string DefaultContentType = "application/octet-stream";
+
     public static RouteGroupBuilder MapAudioEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/audios").WithTags("Audios");
@@ -56,9 +57,8 @@ public static class AudioEndpoints
         HttpRequest request,
         AppDbContext db,
         IFileStore fileStore,
-        IAudioCompressor compressor,
         AudioFileValidator validator,
-        ISummaryQueue summaryQueue,
+        IProcessingQueue processingQueue,
         IOptions<SummarizationOptions> summarizationOptions,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -86,25 +86,16 @@ public static class AudioEndpoints
         var id = Guid.NewGuid();
         var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
 
-        CompressedAudio compressed;
-        try
+        var originalExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrEmpty(originalExtension))
         {
-            await using var stream = file.OpenReadStream();
-            compressed = await compressor.CompressToAacAsync(stream, ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            logger.LogWarning(ex, "Falha ao comprimir áudio para AAC (arquivo: {FileName})", file.FileName);
-            return Results.Problem(
-                title: "Falha ao processar áudio",
-                detail: "Não foi possível comprimir o arquivo enviado para AAC. Verifique se o arquivo é um áudio válido.",
-                statusCode: StatusCodes.Status422UnprocessableEntity);
+            originalExtension = ".bin";
         }
 
         StoredFile stored;
-        await using (compressed.Stream)
+        await using (var stream = file.OpenReadStream())
         {
-            stored = await fileStore.SaveAsync(id, compressed.Extension, compressed.Stream, baseUrl, ct);
+            stored = await fileStore.SaveAsync(id, originalExtension, stream, baseUrl, ct);
         }
 
         var summarizationEnabled = summarizationOptions.Value.Enabled;
@@ -115,9 +106,13 @@ public static class AudioEndpoints
             OriginalFileName = file.FileName,
             StoredFileName = stored.StoredFileName,
             Url = stored.Url,
-            ContentType = compressed.ContentType,
+            ContentType = string.IsNullOrWhiteSpace(file.ContentType)
+                ? DefaultContentType
+                : file.ContentType,
             SizeBytes = stored.SizeBytes,
             CreatedAtUtc = DateTime.UtcNow,
+            ProcessingStatus = ProcessingStatus.Pending,
+            ProcessingUpdatedAtUtc = DateTime.UtcNow,
             SummaryStatus = summarizationEnabled ? SummaryStatus.Pending : SummaryStatus.Disabled,
             SummaryUpdatedAtUtc = summarizationEnabled ? DateTime.UtcNow : null,
         };
@@ -127,12 +122,12 @@ public static class AudioEndpoints
 
         logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
 
-        if (summarizationEnabled && !summaryQueue.TryEnqueue(id))
+        if (!processingQueue.TryEnqueue(id))
         {
-            logger.LogWarning("Fila de sumarização cheia; o áudio {Id} não será resumido.", id);
-            entity.SummaryStatus = SummaryStatus.Failed;
-            entity.SummaryError = "A fila de sumarização está cheia; tente enviar o áudio novamente mais tarde.";
-            entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
+            const string reason = "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.";
+            logger.LogWarning("Fila de processamento cheia; o áudio {Id} não será comprimido.", id);
+
+            entity.MarkProcessingFailed(reason);
             await db.SaveChangesAsync(ct);
         }
 
@@ -143,6 +138,7 @@ public static class AudioEndpoints
     private static async Task<Ok<List<AudioFileDto>>> ListAsync(AppDbContext db, CancellationToken ct)
     {
         var items = await db.AudioFiles
+            .AsNoTracking()
             .OrderByDescending(a => a.CreatedAtUtc)
             .Select(a => AudioFileDto.FromEntity(a))
             .ToListAsync(ct);

@@ -1,7 +1,32 @@
+using AudioApi.Compression;
+using Microsoft.Extensions.Logging.Abstractions;
+using CompressionOptions = AudioApi.Options.CompressionOptions;
+
 namespace AudioApi.Tests;
 
 internal static class TestAudio
 {
+    /// <summary>
+    /// Builds a real AAC/M4A file by running the same ffmpeg pipeline the API uses, so a test can
+    /// upload an audio whose extension already equals the compressed output extension.
+    /// </summary>
+    public static async Task<byte[]> CreateValidM4aBytesAsync(int sampleCount = 4000, int sampleRateHz = 8000)
+    {
+        var compressor = new FfmpegAudioCompressor(
+            Microsoft.Extensions.Options.Options.Create(new CompressionOptions()),
+            NullLogger<FfmpegAudioCompressor>.Instance);
+
+        using var input = new MemoryStream(CreateValidWavBytes(sampleCount, sampleRateHz));
+        var result = await compressor.CompressToAacAsync(input);
+
+        await using (result.Stream)
+        {
+            using var output = new MemoryStream();
+            await result.Stream.CopyToAsync(output);
+            return output.ToArray();
+        }
+    }
+
     /// <summary>Builds a minimal valid PCM WAV file (mono, 16-bit, silence) so ffmpeg can decode it.</summary>
     public static byte[] CreateValidWavBytes(int sampleCount = 4000, int sampleRateHz = 8000)
     {

@@ -2,6 +2,7 @@ using AudioApi.Compression;
 using AudioApi.Data;
 using AudioApi.Endpoints;
 using AudioApi.Options;
+using AudioApi.Processing;
 using AudioApi.Storage;
 using AudioApi.Summarization;
 using AudioApi.Validation;
@@ -14,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<UploadOptions>(builder.Configuration.GetSection(UploadOptions.SectionName));
 builder.Services.Configure<CompressionOptions>(builder.Configuration.GetSection(CompressionOptions.SectionName));
+builder.Services.Configure<ProcessingOptions>(builder.Configuration.GetSection(ProcessingOptions.SectionName));
 builder.Services.Configure<SummarizationOptions>(builder.Configuration.GetSection(SummarizationOptions.SectionName));
 builder.Services.Configure<CorsOptions>(builder.Configuration.GetSection(CorsOptions.SectionName));
 
@@ -46,6 +48,11 @@ builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connect
 builder.Services.AddSingleton<IFileStore, LocalFileStore>();
 builder.Services.AddSingleton<IAudioCompressor, FfmpegAudioCompressor>();
 builder.Services.AddScoped<AudioFileValidator>();
+
+builder.Services.AddSingleton<IDbWriteGate, DbWriteGate>();
+
+builder.Services.AddSingleton<IProcessingQueue, ProcessingQueue>();
+builder.Services.AddHostedService<AudioProcessingBackgroundService>();
 
 builder.Services.AddSingleton<ISummaryQueue, SummaryQueue>();
 builder.Services.AddHttpClient<IAudioSummarizer, WhisperAudioSummarizer>(client =>

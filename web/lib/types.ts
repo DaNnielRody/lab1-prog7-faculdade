@@ -1,5 +1,7 @@
 export type SummaryStatus = "Pending" | "Processing" | "Completed" | "Failed" | "Disabled";
 
+export type ProcessingStatus = "Pending" | "Processing" | "Completed" | "Failed";
+
 export interface AudioFileDto {
   id: string;
   originalFileName: string;
@@ -8,6 +10,9 @@ export interface AudioFileDto {
   contentType: string;
   sizeBytes: number;
   createdAtUtc: string;
+  processingStatus?: ProcessingStatus;
+  processingError?: string | null;
+  processingUpdatedAtUtc?: string | null;
   summary?: string | null;
   summaryStatus: SummaryStatus;
   summaryLanguage?: string | null;
@@ -18,6 +23,8 @@ export interface AudioFileDto {
 export interface AudioSummaryDto {
   id: string;
   status: SummaryStatus;
+  processingStatus?: ProcessingStatus;
+  processingError?: string | null;
   summary?: string | null;
   summaryLength: number;
   maxSummaryLength: number;

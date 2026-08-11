@@ -3,8 +3,17 @@ import { cn } from "./cn";
 
 export type ButtonVariant = "primary" | "ghost" | "danger";
 
+/**
+ * `sm` exists so a primary can stand next to a ghost at the same height — Figma
+ * `button-primary-sm` (5:528) and `button-ghost-sm` (5:530) are both 35px, `px-16 py-8`, 12px.
+ * The default ghost already carries those metrics, so `size` only changes the filled variants;
+ * widening it to `ghost` would resize the topbar and panel controls, which are correct today.
+ */
+export type ButtonSize = "md" | "sm";
+
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   variant?: ButtonVariant;
+  size?: ButtonSize;
   loading?: boolean;
   fullWidth?: boolean;
   children: ReactNode;
@@ -14,20 +23,16 @@ const BASE =
   "inline-flex items-center justify-center gap-2 rounded-full transition-colors " +
   "disabled:cursor-not-allowed";
 
-const VARIANT: Record<ButtonVariant, string> = {
-  primary: "bg-brand hover:bg-brand-pressed text-text text-body-lg font-semibold px-5 py-3",
-  ghost: "bg-canvas hover:bg-surface-muted border border-hairline text-text text-label px-4 py-2",
-  danger: "bg-danger text-text-inverse text-body-lg font-semibold px-5 py-3",
+const FILLED_METRICS: Record<ButtonSize, string> = {
+  md: "text-body-lg font-semibold px-5 py-3",
+  sm: "text-label font-semibold px-4 py-2",
 };
 
-const DISABLED: Record<ButtonVariant, string> = {
-  primary: "bg-surface-disabled text-text-disabled text-body-lg font-semibold px-5 py-3",
-  ghost: "bg-surface-disabled text-text-disabled border border-hairline text-label px-4 py-2",
-  danger: "bg-surface-disabled text-text-disabled text-body-lg font-semibold px-5 py-3",
-};
+const GHOST_METRICS = "text-label px-4 py-2";
 
 export function Button({
   variant = "primary",
+  size = "md",
   loading = false,
   fullWidth = false,
   disabled = false,
@@ -37,7 +42,21 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const inert = disabled || loading;
-  const tone = disabled ? DISABLED[variant] : VARIANT[variant];
+  const metrics = variant === "ghost" ? GHOST_METRICS : FILLED_METRICS[size];
+
+  let fill: string;
+  if (disabled) {
+    fill = "bg-surface-disabled text-text-disabled";
+    if (variant === "ghost") fill += " border border-hairline";
+  } else if (variant === "primary") {
+    fill = "bg-brand hover:bg-brand-pressed text-text";
+  } else if (variant === "danger") {
+    fill = "bg-danger text-text-inverse";
+  } else {
+    fill = "bg-canvas hover:bg-surface-muted border border-hairline text-text";
+  }
+
+  const tone = `${fill} ${metrics}`;
 
   return (
     <button

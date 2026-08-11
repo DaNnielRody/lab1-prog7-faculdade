@@ -8,24 +8,52 @@ do file store e os demais metadados.
 
 - Recebe um arquivo de áudio via `multipart/form-data`.
 - Valida se o upload é realmente um áudio (por content-type `audio/*` **ou** por extensão).
-- Gera um `Guid` (UUID) para o arquivo, **comprime o áudio para AAC** (`.m4a`, via `ffmpeg`) e
-  grava apenas o arquivo comprimido no file store.
+- Gera um `Guid` (UUID) para o arquivo, grava os bytes no file store e responde **201** —
+  **sem rodar `ffmpeg`**.
 - Persiste um registro no banco com: `Id`, `OriginalFileName`, `StoredFileName`, `Url`,
-  `ContentType`, `SizeBytes`, `CreatedAtUtc` e os campos de resumo (`Summary`, `SummaryStatus`,
+  `ContentType`, `SizeBytes`, `CreatedAtUtc`, os campos de processamento (`ProcessingStatus`,
+  `ProcessingError`, `ProcessingUpdatedAtUtc`) e os de resumo (`Summary`, `SummaryStatus`,
   `SummaryLanguage`, `SummaryError`, `SummaryUpdatedAtUtc`).
-- **Extrai um resumo do áudio (≤ 500 caracteres)** com um modelo de IA leve local (Whisper `tiny`),
-  em um **worker em background** — fora da thread da requisição.
-- Expõe endpoints para consultar os metadados, baixar o arquivo (já comprimido), consultar o resumo
-  e listar tudo.
+- **Comprime o áudio para AAC** (`.m4a`, via `ffmpeg`) e depois **extrai um resumo do áudio
+  (≤ 500 caracteres)** com um modelo de IA leve local (Whisper `tiny`) — as duas etapas em
+  **workers em background**, fora da thread da requisição.
+- Expõe endpoints para consultar os metadados, baixar o arquivo, consultar o resumo e listar tudo.
 
-### Compressão de áudio (AAC)
+### Pipeline de processamento (compressão + resumo, em background)
 
-Todo áudio enviado é transcodificado para **AAC** (container `.m4a`, 128 kbps por padrão) via
-`ffmpeg` (`AudioApi.Compression.FfmpegAudioCompressor`) antes de ser salvo no file store — o
-arquivo original nunca é persistido. O tempo de compressão é medido e logado
-(`Áudio comprimido para AAC em {ms}ms ...`). Se o arquivo não puder ser decodificado como áudio,
-a API responde **422 Unprocessable Entity**. Ver análise completa em
-[`docs/week2-analysis.md`](docs/week2-analysis.md), incluindo a discussão sobre threading.
+O `POST /api/audios` **não roda `ffmpeg`**. Ele valida, grava os bytes originais, cria a linha com
+`ProcessingStatus: "Pending"` e responde **201** — para um WAV de 42 MB, em **~0,2s** em vez dos
+**~2,9s** de antes (≈ 14x). A medição está em
+[`docs/week4-threading-pipeline.md`](docs/week4-threading-pipeline.md).
+
+Duas filas limitadas (`Channel<Guid>`) e dois `BackgroundService` fazem o resto:
+
+```
+POST → 201 (Pending)
+   └→ fila de compressão  → ffmpeg → .m4a substitui o original → Completed
+        └→ fila de resumo → Whisper → Completed | Failed
+```
+
+Cada fila tem o seu limite de concorrência (`SemaphoreSlim`), porque o recurso escasso é
+diferente: a compressão disputa os **núcleos locais** (padrão: `Environment.ProcessorCount`), a
+sumarização disputa a **VPS remota** de 4 vCPUs (padrão: 1). Como agora há dois workers gravando
+no mesmo SQLite — que aceita **um escritor por vez** — as escritas de background passam por um
+`DbWriteGate` (`SemaphoreSlim(1,1)`).
+
+Todo áudio é transcodificado para **AAC** (container `.m4a`, 128 kbps por padrão) por
+`AudioApi.Compression.FfmpegAudioCompressor`, e o original é apagado assim que a linha do `.m4a`
+é commitada — no fim, um arquivo por áudio. O tempo de compressão é medido e logado
+(`Áudio comprimido para AAC em {ms}ms ...`).
+
+Se o arquivo não puder ser decodificado, a API **não** responde 422: a requisição não decodifica
+mais nada, então a falha aparece como `ProcessingStatus: "Failed"` + `ProcessingError` na linha,
+e o upload continua **201**. O `400` de validação (nome/content-type/tamanho) continua dentro da
+requisição, porque não decodifica nada.
+
+Histórico do raciocínio: [`docs/week2-analysis.md`](docs/week2-analysis.md) (por que ainda não),
+[`docs/week3-threading-explanation.md`](docs/week3-threading-explanation.md) (o resumo sai da
+requisição), [`docs/week4-threading-pipeline.md`](docs/week4-threading-pipeline.md) (a compressão
+também sai, e a medição).
 
 ### Resumo de áudio (Whisper local, ≤ 500 caracteres)
 
@@ -34,10 +62,11 @@ Depois de armazenado, o áudio é transcrito por **Whisper `tiny`**
 no máximo 500 caracteres**. O modelo roda **local**, em um worker HTTP separado
 (`worker/audio-summary-worker/`) — nenhuma API paga de IA é usada.
 
-O trabalho **não acontece durante o `POST`**: o upload enfileira apenas o `Guid` numa fila limitada
-(`Channel<Guid>`) e responde **201** com `summaryStatus: "Pending"`. Um `BackgroundService`
-consome a fila, chama o worker e grava o resultado. O cliente acompanha via
-`GET /api/audios/{id}/summary` (`Pending` → `Processing` → `Completed` | `Failed`).
+O trabalho **não acontece durante o `POST`**: o upload responde **201** com
+`summaryStatus: "Pending"`, e o job de resumo é enfileirado pelo worker de compressão assim que o
+`.m4a` existe. Um `BackgroundService` consome essa fila, chama o worker Whisper e grava o
+resultado. O cliente acompanha via `GET /api/audios/{id}/summary`
+(`Pending` → `Processing` → `Completed` | `Failed`), que também devolve o `processingStatus`.
 
 Isso é o oposto da conclusão da semana 2, e de propósito: a compressão custou 160ms para um arquivo
 onde a sumarização custou 1435ms (~9x), e a transcrição escala com a **duração** do áudio (~10x
@@ -75,7 +104,7 @@ Rodando pelo `dotnet run`, ela vem **desligada** (`Summarization:Enabled = false
 |--------|-------------------------------|--------------------------------------------------|
 | POST   | `/api/audios`                 | Envia um áudio (`multipart/form-data`, campo `file`). Retorna **201 Created** + `Location`. |
 | GET    | `/api/audios/{id}`            | Retorna os metadados do registro (404 se não existir). |
-| GET    | `/api/audios/{id}/download`   | Faz o streaming dos bytes do arquivo (404 se não existir). |
+| GET    | `/api/audios/{id}/download`   | Faz o streaming dos bytes do arquivo — o original enquanto `ProcessingStatus` for `Pending`/`Processing`, o `.m4a` depois (404 se não existir). |
 | GET    | `/api/audios/{id}/summary`    | Retorna o resumo (≤ 500 caracteres) e o estado da sumarização (404 se não existir). |
 | GET    | `/api/audios`                 | Lista todos os registros.                        |
 | GET    | `/health`                     | Verificação de saúde.                            |
@@ -84,6 +113,13 @@ Rodando pelo `dotnet run`, ela vem **desligada** (`Summarization:Enabled = false
 
 Aplicação **Next.js (App Router) + TypeScript + Tailwind v4** que consome esta API: envia o áudio,
 mostra o estado de carregamento durante o upload e exibe o resumo (ou o erro) na mesma tela.
+
+A tela é uma **conversa**, e cada áudio que o servidor já processou (`GET /api/audios`) aparece
+nela como **uma mensagem, mostrando o resumo daquele áudio** — as 10 mais recentes, antes da
+sessão atual. Quando ainda não há resumo, a mensagem diz o motivo (comprimindo, falhou com a
+mensagem do servidor, aguardando, ou resumo desativado); nenhum estado renderiza corpo vazio.
+O polling roda só enquanto houver áudio não-terminal e para sozinho quando todos chegam a um
+estado final.
 
 O visual é especificado em [`docs/DESIGN.md`](docs/DESIGN.md) — todo valor visual do código resolve
 para um token declarado em `web/app/globals.css`. O Figma de referência está linkado no topo do
@@ -139,27 +175,45 @@ Abra o **Swagger UI** em: **http://localhost:5218/swagger**
 ### Exemplo: enviar um áudio
 
 ```bash
-# gera um arquivo .wav de teste
-head -c 100000 /dev/urandom > test.wav
+# gera um .wav de teste que o ffmpeg consegue decodificar de verdade
+ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ar 44100 -ac 2 test.wav
 
 # envia (informando o content-type audio/wav)
 curl -i -X POST http://localhost:5218/api/audios \
   -F "file=@test.wav;type=audio/wav"
 ```
 
-Resposta (201 Created):
+Resposta (201 Created) — note que ela sai **antes** da compressão, então ainda descreve o arquivo
+original:
 
 ```json
 {
   "id": "bfbb5766-c677-402c-9d6c-990600514573",
   "originalFileName": "test.wav",
-  "storedFileName": "bfbb5766c677402c9d6c990600514573.m4a",
+  "storedFileName": "bfbb5766c677402c9d6c990600514573.wav",
   "url": "http://localhost:5218/api/audios/bfbb5766-c677-402c-9d6c-990600514573/download",
-  "contentType": "audio/mp4",
-  "sizeBytes": 8213,
-  "createdAtUtc": "2026-07-12T23:30:44.21Z"
+  "contentType": "audio/wav",
+  "sizeBytes": 882078,
+  "createdAtUtc": "2026-08-08T15:57:06.96Z",
+  "processingStatus": "Pending",
+  "summaryStatus": "Pending"
 }
 ```
+
+Alguns instantes depois, o mesmo `GET /api/audios/{id}` mostra o trabalho do worker:
+
+```json
+{
+  "storedFileName": "bfbb5766c677402c9d6c990600514573.m4a",
+  "contentType": "audio/mp4",
+  "sizeBytes": 81920,
+  "processingStatus": "Completed"
+}
+```
+
+Um arquivo que passa na validação mas **não** é áudio decodificável (por exemplo
+`head -c 100000 /dev/urandom > lixo.wav`) também responde **201** — a falha aparece depois, em
+`processingStatus: "Failed"` com o motivo em `processingError`.
 
 ### Exemplo: consultar metadados e baixar
 
@@ -188,6 +242,22 @@ Sobe **dois** serviços: a API e o worker Whisper que gera os resumos. A sumariz
 A API fica disponível em **http://localhost:8080** (Swagger em
 http://localhost:8080/swagger — o compose usa `ASPNETCORE_ENVIRONMENT=Development`).
 O worker não é exposto ao host: só a API fala com ele, pela rede interna do compose.
+
+> ⚠️ **Usando o front junto com o compose, aponte-o para a 8080.** O cliente web tem como padrão
+> `http://localhost:5218`, que é a porta do `dotnet run` — com o compose ele bate numa porta onde
+> não há nada e a tela mostra "API sem resposta". Crie `web/.env.local`:
+>
+> ```bash
+> echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8080' > web/.env.local
+> ```
+>
+> e **reinicie o `npm run dev`** — variáveis `NEXT_PUBLIC_*` são lidas no build, não a cada request.
+> O CORS já permite `http://localhost:3000`; para outra origem, ajuste `Cors:AllowedOrigins`.
+
+> ⚠️ **Depois de mudar código do servidor, rebuilde.** `docker compose up` sem `--build` sobe a
+> imagem antiga e a API responde sem os campos novos (`processingStatus` e companhia), o que
+> aparece no cliente como comportamento fantasma. Use `docker compose up -d --build`. Se o schema
+> mudou, apague o volume também: `docker compose down -v`.
 
 > **Primeira execução é lenta.** A imagem do worker instala o `faster-whisper` e, ao subir, baixa
 > os pesos do modelo `tiny` (~75 MB). Eles ficam no volume `whisper-models`, então da segunda vez
@@ -270,6 +340,10 @@ No Docker esses caminhos são `/app/filestore` e `/app/data`, mapeados para volu
     "FfmpegPath": "ffmpeg",            // caminho/nome do binário do ffmpeg
     "BitrateKbps": 128                 // bitrate do AAC de saída
   },
+  "Processing": {
+    "MaxConcurrency": 0,               // 0 (ou ausente) = número de processadores da máquina
+    "QueueCapacity": 100               // fila cheia → ProcessingStatus Failed, upload segue 201
+  },
   "Summarization": {
     "Enabled": false,                  // true liga o resumo; false = nunca toca a rede
     "Endpoint": "http://localhost:9000", // base URL do worker Whisper
@@ -283,7 +357,9 @@ No Docker esses caminhos são `/app/filestore` e `/app/data`, mapeados para volu
 ```
 
 > **Banco existente:** o schema é criado com `EnsureCreated()` e o projeto não usa migrations, então
-> as colunas de resumo **não** são adicionadas a um `data/audios.db` que já existe. Apague o arquivo
+> as colunas de resumo e de processamento (`ProcessingStatus`, `ProcessingError`,
+> `ProcessingUpdatedAtUtc`) **não** são adicionadas a um `data/audios.db` que já existe — o app
+> quebra com `SQLite Error 1: 'no such column: a.ProcessingStatus'`. Apague o arquivo
 > (`rm src/AudioApi/data/audios.db`) ou o volume `audio-data` do compose (`docker compose down -v`)
 > antes de subir esta versão.
 
@@ -299,18 +375,25 @@ docker/sandbox/smoke.sh
 src/AudioApi/
   Program.cs
   Data/AppDbContext.cs
+  Data/IDbWriteGate.cs
+  Data/DbWriteGate.cs                    # SemaphoreSlim(1,1): SQLite aceita um escritor
   Models/AudioFile.cs
+  Models/ProcessingStatus.cs
   Models/SummaryStatus.cs
   Dtos/AudioFileDto.cs
   Dtos/AudioSummaryDto.cs
   Options/StorageOptions.cs
   Options/UploadOptions.cs
   Options/CompressionOptions.cs
+  Options/ProcessingOptions.cs
   Options/SummarizationOptions.cs
   Storage/IFileStore.cs
   Storage/LocalFileStore.cs
   Compression/IAudioCompressor.cs
   Compression/FfmpegAudioCompressor.cs
+  Processing/IProcessingQueue.cs
+  Processing/ProcessingQueue.cs          # Channel<Guid> limitado
+  Processing/AudioProcessingBackgroundService.cs
   Summarization/IAudioSummarizer.cs
   Summarization/WhisperAudioSummarizer.cs
   Summarization/SummaryTruncator.cs      # a garantia dos ≤ 500 caracteres
@@ -322,6 +405,7 @@ src/AudioApi/
 tests/AudioApi.Tests/
   AudioFileValidatorTests.cs
   AudioApiIntegrationTests.cs
+  AudioProcessingIntegrationTests.cs
   AudioSummaryIntegrationTests.cs
   FfmpegAudioCompressorTests.cs
   SummaryTruncatorTests.cs
@@ -336,6 +420,8 @@ worker/audio-summary-worker/           # modelo local Whisper (Python + FastAPI)
   docker-compose.yml
   README.md
 docs/
+  DESIGN.md
   week2-analysis.md
   week3-threading-explanation.md
+  week4-threading-pipeline.md            # o pipeline em background e a medição
 ```
