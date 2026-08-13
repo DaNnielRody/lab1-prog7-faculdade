@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using AudioApi.Compression;
 using AudioApi.Dtos;
 using AudioApi.Models;
 using AudioApi.Summarization;
@@ -264,6 +265,79 @@ public class AudioProcessingIntegrationTests
     }
 
     [Fact]
+    public async Task Processing_ParallelWorker_UsesConfiguredCeiling_AndCompletesAllQueuedJobs()
+    {
+        const int maxConcurrency = 2;
+        const int uploads = 3;
+        var compressor = new BlockingAudioCompressor(expectedConcurrentJobs: maxConcurrency);
+
+        using var factory = new ProcessingAppFactory(maxConcurrency: maxConcurrency, compressor: compressor);
+        var client = factory.CreateClient();
+        var bytes = TestAudio.CreateValidWavBytes();
+
+        var created = await Task.WhenAll(Enumerable.Range(0, uploads)
+            .Select(i => UploadAsync(client, bytes, $"parallel-{i}.wav", "audio/wav")));
+
+        await compressor.AllExpectedJobsStarted.WaitAsync(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            Assert.Equal(maxConcurrency, compressor.MaxObservedConcurrency);
+            Assert.Equal(maxConcurrency, compressor.CurrentConcurrency);
+            Assert.Equal(maxConcurrency, compressor.StartedJobs);
+            Assert.NotSame(
+                compressor.UnexpectedJobStarted,
+                await Task.WhenAny(
+                    compressor.UnexpectedJobStarted,
+                    Task.Delay(TimeSpan.FromMilliseconds(250))));
+        }
+        finally
+        {
+            compressor.Release();
+        }
+
+        var processed = await Task.WhenAll(created.Select(c => PollUntilProcessedAsync(client, c.Id)));
+
+        Assert.All(processed, audio =>
+        {
+            Assert.Equal(ProcessingStatus.Completed, audio.ProcessingStatus);
+            Assert.Null(audio.ProcessingError);
+            Assert.EndsWith(".m4a", audio.StoredFileName);
+        });
+    }
+
+    [Fact]
+    public async Task Processing_Shutdown_CancelsActiveCompression_AndDoesNotDeadlock()
+    {
+        var compressor = new BlockingAudioCompressor(expectedConcurrentJobs: 1);
+        var factory = new ProcessingAppFactory(maxConcurrency: 1, compressor: compressor);
+        Task? shutdown = null;
+
+        try
+        {
+            var client = factory.CreateClient();
+            await UploadAsync(client, TestAudio.CreateValidWavBytes(), "shutdown.wav", "audio/wav");
+            await compressor.AllExpectedJobsStarted.WaitAsync(TimeSpan.FromSeconds(10));
+
+            shutdown = Task.Run(factory.Dispose);
+            await compressor.CancellationObserved.WaitAsync(TimeSpan.FromSeconds(10));
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            compressor.Release();
+            if (shutdown is null)
+            {
+                factory.Dispose();
+            }
+            else
+            {
+                await shutdown.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessingState_IsExposedOnBothAudioFileDtoAndAudioSummaryDto()
     {
         using var factory = new ProcessingAppFactory();
@@ -305,6 +379,90 @@ public class AudioProcessingIntegrationTests
         }
     }
 
+    private sealed class BlockingAudioCompressor : IAudioCompressor
+    {
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _cancellationObserved =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _unexpectedJobStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly int _expectedConcurrentJobs;
+        private int _currentConcurrency;
+        private int _maxObservedConcurrency;
+        private int _startedJobs;
+
+        public BlockingAudioCompressor(int expectedConcurrentJobs)
+        {
+            _expectedConcurrentJobs = expectedConcurrentJobs;
+            AllExpectedJobsStartedSource = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        private TaskCompletionSource<bool> AllExpectedJobsStartedSource { get; }
+
+        public Task AllExpectedJobsStarted => AllExpectedJobsStartedSource.Task;
+
+        public Task UnexpectedJobStarted => _unexpectedJobStarted.Task;
+
+        public Task CancellationObserved => _cancellationObserved.Task;
+
+        public int CurrentConcurrency => Volatile.Read(ref _currentConcurrency);
+
+        public int MaxObservedConcurrency => Volatile.Read(ref _maxObservedConcurrency);
+
+        public int StartedJobs => Volatile.Read(ref _startedJobs);
+
+        public void Release() => _release.TrySetResult(true);
+
+        public async Task<CompressedAudio> CompressToAacAsync(
+            Stream input,
+            CancellationToken ct = default)
+        {
+            var current = Interlocked.Increment(ref _currentConcurrency);
+            UpdateMaximum(current);
+
+            var started = Interlocked.Increment(ref _startedJobs);
+            if (started > _expectedConcurrentJobs)
+            {
+                _unexpectedJobStarted.TrySetResult(true);
+            }
+            else if (started == _expectedConcurrentJobs)
+            {
+                AllExpectedJobsStartedSource.TrySetResult(true);
+            }
+
+            try
+            {
+                await _release.Task.WaitAsync(ct);
+                await input.CopyToAsync(Stream.Null, ct);
+                return new CompressedAudio(new MemoryStream([0x4D, 0x34, 0x41]), ".m4a", "audio/mp4");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                _cancellationObserved.TrySetResult(true);
+                throw;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _currentConcurrency);
+            }
+        }
+
+        private void UpdateMaximum(int current)
+        {
+            while (true)
+            {
+                var observed = Volatile.Read(ref _maxObservedConcurrency);
+                if (current <= observed || Interlocked.CompareExchange(
+                        ref _maxObservedConcurrency, current, observed) == observed)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
     private sealed class ProcessingAppFactory : WebApplicationFactory<Program>
     {
         private readonly string _tempDir =
@@ -313,15 +471,18 @@ public class AudioProcessingIntegrationTests
         private readonly bool _summarizationEnabled;
         private readonly string? _summarizerSummary;
         private readonly int _maxConcurrency;
+        private readonly IAudioCompressor? _compressor;
 
         public ProcessingAppFactory(
             bool summarizationEnabled = false,
             string? summarizerSummary = null,
-            int maxConcurrency = 4)
+            int maxConcurrency = 4,
+            IAudioCompressor? compressor = null)
         {
             _summarizationEnabled = summarizationEnabled;
             _summarizerSummary = summarizerSummary;
             _maxConcurrency = maxConcurrency;
+            _compressor = compressor;
             Directory.CreateDirectory(_tempDir);
         }
 
@@ -345,6 +506,12 @@ public class AudioProcessingIntegrationTests
         {
             builder.ConfigureServices(services =>
             {
+                if (_compressor is not null)
+                {
+                    services.RemoveAll<IAudioCompressor>();
+                    services.AddSingleton(_compressor);
+                }
+
                 services.RemoveAll<IAudioSummarizer>();
                 services.AddSingleton<IAudioSummarizer>(_ => new FakeAudioSummarizer(_summarizerSummary));
             });
