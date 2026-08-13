@@ -34,11 +34,12 @@ POST → 201 (Pending)
         └→ fila de resumo → Whisper → Completed | Failed
 ```
 
-Cada fila tem o seu limite de concorrência (`SemaphoreSlim`), porque o recurso escasso é
-diferente: a compressão disputa os **núcleos locais** (padrão: `Environment.ProcessorCount`), a
-sumarização disputa a **VPS remota** de 4 vCPUs (padrão: 1). Como agora há dois workers gravando
-no mesmo SQLite — que aceita **um escritor por vez** — as escritas de background passam por um
-`DbWriteGate` (`SemaphoreSlim(1,1)`).
+A compressão consome sua fila com `Parallel.ForEachAsync`, limitado por
+`MaxDegreeOfParallelism = Processing:MaxConcurrency` (padrão:
+`Environment.ProcessorCount`). A sumarização continua usando `SemaphoreSlim`, porque disputa a
+**VPS remota** de 4 vCPUs (padrão: 1). Como os dois workers gravam no mesmo SQLite — que aceita
+**um escritor por vez** — as escritas de background passam por um `DbWriteGate`
+(`SemaphoreSlim(1,1)`).
 
 Todo áudio é transcodificado para **AAC** (container `.m4a`, 128 kbps por padrão) por
 `AudioApi.Compression.FfmpegAudioCompressor`, e o original é apagado assim que a linha do `.m4a`
