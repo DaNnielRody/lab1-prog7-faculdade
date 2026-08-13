@@ -47,6 +47,6 @@ public class FfmpegAudioCompressorTests
 
         using var input = new MemoryStream(garbage);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => compressor.CompressToAacAsync(input));
+        await Assert.ThrowsAsync<AudioCompressionException>(() => compressor.CompressToAacAsync(input));
     }
 }

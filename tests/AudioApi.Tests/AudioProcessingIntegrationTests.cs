@@ -1,15 +1,19 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using AudioApi.Compression;
+using AudioApi.Processing;
 using AudioApi.Dtos;
 using AudioApi.Models;
 using AudioApi.Summarization;
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace AudioApi.Tests;
 
@@ -338,6 +342,133 @@ public class AudioProcessingIntegrationTests
     }
 
     [Fact]
+    public async Task Upload_WhenProcessingQueueIsFull_Returns503AndPersistsTerminalFailedRecordWithFile()
+    {
+        using var factory = new ProcessingAppFactory(processingQueue: new RejectingProcessingQueue());
+        var client = factory.CreateClient();
+        using var content = CreateUploadContent(TestAudio.CreateValidWavBytes(), "overload.wav");
+
+        var response = await client.PostAsync("/api/audios", content);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var audios = await client.GetFromJsonAsync<List<AudioFileDto>>("/api/audios");
+        var failed = Assert.Single(audios!);
+        Assert.Equal(ProcessingStatus.Failed, failed.ProcessingStatus);
+        Assert.NotNull(failed.ProcessingError);
+        Assert.DoesNotContain(audios!, audio => audio.ProcessingStatus == ProcessingStatus.Pending);
+
+        var download = await client.GetAsync($"/api/audios/{failed.Id}/download");
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.NotEmpty(await download.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task Processing_KnownFailureFailsOnlyItsAudio_AndNextJobCompletesWithoutSensitiveLogData()
+    {
+        var compressor = new FirstKnownFailureThenSuccessCompressor();
+        var logs = new RecordingLoggerProvider();
+        using var factory = new ProcessingAppFactory(maxConcurrency: 1, compressor: compressor, loggerProvider: logs);
+        var client = factory.CreateClient();
+
+        var failedUpload = await UploadAsync(
+            client, TestAudio.CreateValidWavBytes(), "known-failure.wav", "audio/wav");
+        var failed = await PollUntilProcessedAsync(client, failedUpload.Id);
+        var successfulUpload = await UploadAsync(
+            client, TestAudio.CreateValidWavBytes(), "next-job.wav", "audio/wav");
+        var completed = await PollUntilProcessedAsync(client, successfulUpload.Id);
+
+        Assert.Equal(ProcessingStatus.Failed, failed.ProcessingStatus);
+        Assert.Equal("O ffmpeg não conseguiu decodificar ou comprimir o áudio.", failed.ProcessingError);
+        Assert.Equal(ProcessingStatus.Completed, completed.ProcessingStatus);
+        Assert.Equal(2, compressor.CallCount);
+
+        var workerLogs = logs.Entries.Where(entry =>
+            entry.Category == typeof(AudioProcessingBackgroundService).FullName).ToList();
+        Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("customer-secret", StringComparison.Ordinal));
+        Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("/private/", StringComparison.Ordinal));
+        Assert.DoesNotContain(workerLogs, entry => entry.Exception is not null);
+    }
+
+    [Fact]
+    public async Task Processing_UnexpectedFailureIsCritical_FailsUnfinishedJobs_AndStopsWorker()
+    {
+        var compressor = new BlockingFatalCompressor();
+        var logs = new RecordingLoggerProvider();
+        using var factory = new ProcessingAppFactory(
+            maxConcurrency: 1,
+            queueCapacity: 1,
+            compressor: compressor,
+            loggerProvider: logs,
+            ignoreBackgroundServiceExceptions: true);
+        var client = factory.CreateClient();
+
+        var fatalUpload = await UploadAsync(client, TestAudio.CreateValidWavBytes(), "fatal.wav", "audio/wav");
+        await compressor.Started.WaitAsync(TimeSpan.FromSeconds(10));
+        var queuedUpload = await UploadAsync(client, TestAudio.CreateValidWavBytes(), "queued.wav", "audio/wav");
+
+        compressor.Release();
+        await logs.CriticalLogged.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var fatal = await PollUntilProcessedAsync(client, fatalUpload.Id);
+        var queued = await PollUntilProcessedAsync(client, queuedUpload.Id);
+        Assert.Equal(ProcessingStatus.Failed, fatal.ProcessingStatus);
+        Assert.Equal(ProcessingStatus.Failed, queued.ProcessingStatus);
+        Assert.DoesNotContain(new[] { fatal, queued }, audio =>
+            audio.ProcessingStatus is ProcessingStatus.Pending or ProcessingStatus.Processing);
+
+        var workerLogs = logs.Entries.Where(entry =>
+            entry.Category == typeof(AudioProcessingBackgroundService).FullName).ToList();
+        Assert.Contains(workerLogs, entry => entry.Level == LogLevel.Critical);
+        Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("fatal-secret", StringComparison.Ordinal));
+        Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("/private/", StringComparison.Ordinal));
+        Assert.DoesNotContain(workerLogs, entry => entry.Exception is not null);
+    }
+
+    [Fact]
+    public async Task Processing_HostCancellationIsPendingForRecovery_NotLoggedOrPersistedAsAudioFailure()
+    {
+        var compressor = new BlockingAudioCompressor(expectedConcurrentJobs: 1);
+        var logs = new RecordingLoggerProvider();
+        var factory = new ProcessingAppFactory(
+            maxConcurrency: 1,
+            compressor: compressor,
+            loggerProvider: logs,
+            deleteTempOnDispose: false);
+        Guid audioId;
+
+        try
+        {
+            var client = factory.CreateClient();
+            var upload = await UploadAsync(client, TestAudio.CreateValidWavBytes(), "shutdown.wav", "audio/wav");
+            audioId = upload.Id;
+            await compressor.AllExpectedJobsStarted.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var shutdown = Task.Run(factory.Dispose);
+            await compressor.CancellationObserved.WaitAsync(TimeSpan.FromSeconds(10));
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await using var connection = new SqliteConnection($"Data Source={factory.DatabasePath}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT ProcessingStatus FROM AudioFiles";
+            Assert.Equal("Pending", await command.ExecuteScalarAsync());
+
+            var workerLogs = logs.Entries.Where(entry =>
+                entry.Category == typeof(AudioProcessingBackgroundService).FullName).ToList();
+            Assert.DoesNotContain(workerLogs, entry =>
+                entry.Level >= LogLevel.Warning && entry.Message.Contains(audioId.ToString(), StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            compressor.Release();
+            if (Directory.Exists(factory.TempDirectory))
+            {
+                Directory.Delete(factory.TempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ProcessingState_IsExposedOnBothAudioFileDtoAndAudioSummaryDto()
     {
         using var factory = new ProcessingAppFactory();
@@ -356,6 +487,15 @@ public class AudioProcessingIntegrationTests
         Assert.NotNull(summaryAfter);
         Assert.Equal(ProcessingStatus.Completed, summaryAfter!.ProcessingStatus);
         Assert.Null(summaryAfter.ProcessingError);
+    }
+
+    private static MultipartFormDataContent CreateUploadContent(byte[] bytes, string fileName)
+    {
+        var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+        content.Add(fileContent, "file", fileName);
+        return content;
     }
 
     private sealed class FakeAudioSummarizer : IAudioSummarizer
@@ -463,6 +603,99 @@ public class AudioProcessingIntegrationTests
         }
     }
 
+    private sealed class FirstKnownFailureThenSuccessCompressor : IAudioCompressor
+    {
+        private int _callCount;
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public async Task<CompressedAudio> CompressToAacAsync(Stream input, CancellationToken ct = default)
+        {
+            var call = Interlocked.Increment(ref _callCount);
+            await input.CopyToAsync(Stream.Null, ct);
+            if (call == 1)
+            {
+                throw new AudioCompressionException(
+                    "customer-secret estava em /private/customer-secret.wav");
+            }
+
+            return new CompressedAudio(new MemoryStream([0x4D, 0x34, 0x41]), ".m4a", "audio/mp4");
+        }
+    }
+
+    private sealed class BlockingFatalCompressor : IAudioCompressor
+    {
+        private readonly TaskCompletionSource<bool> _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Started => _started.Task;
+
+        public void Release() => _release.TrySetResult(true);
+
+        public async Task<CompressedAudio> CompressToAacAsync(Stream input, CancellationToken ct = default)
+        {
+            _started.TrySetResult(true);
+            await _release.Task.WaitAsync(ct);
+            throw new InvalidOperationException("fatal-secret em /private/fatal-secret.wav");
+        }
+    }
+
+    private sealed class RejectingProcessingQueue : IProcessingQueue
+    {
+        private readonly System.Threading.Channels.Channel<Guid> _channel =
+            System.Threading.Channels.Channel.CreateUnbounded<Guid>();
+
+        public bool TryEnqueue(Guid audioId) => false;
+
+        public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>
+            _channel.Reader.ReadAllAsync(ct);
+
+        public void Complete() => _channel.Writer.TryComplete();
+    }
+
+    private sealed record LogEntry(string Category, LogLevel Level, string Message, Exception? Exception);
+
+    private sealed class RecordingLoggerProvider : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<LogEntry> _entries = new();
+        private readonly TaskCompletionSource<bool> _criticalLogged =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyCollection<LogEntry> Entries => _entries.ToArray();
+
+        public Task CriticalLogged => _criticalLogged.Task;
+
+        public ILogger CreateLogger(string categoryName) => new RecordingLogger(categoryName, this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class RecordingLogger(string category, RecordingLoggerProvider provider) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                provider._entries.Enqueue(new LogEntry(category, logLevel, formatter(state, exception), exception));
+                if (logLevel == LogLevel.Critical
+                    && category == typeof(AudioProcessingBackgroundService).FullName)
+                {
+                    provider._criticalLogged.TrySetResult(true);
+                }
+            }
+        }
+    }
+
     private sealed class ProcessingAppFactory : WebApplicationFactory<Program>
     {
         private readonly string _tempDir =
@@ -471,20 +704,39 @@ public class AudioProcessingIntegrationTests
         private readonly bool _summarizationEnabled;
         private readonly string? _summarizerSummary;
         private readonly int _maxConcurrency;
+        private readonly int _queueCapacity;
         private readonly IAudioCompressor? _compressor;
+        private readonly IProcessingQueue? _processingQueue;
+        private readonly ILoggerProvider? _loggerProvider;
+        private readonly bool _ignoreBackgroundServiceExceptions;
+        private readonly bool _deleteTempOnDispose;
 
         public ProcessingAppFactory(
             bool summarizationEnabled = false,
             string? summarizerSummary = null,
             int maxConcurrency = 4,
-            IAudioCompressor? compressor = null)
+            int queueCapacity = 100,
+            IAudioCompressor? compressor = null,
+            IProcessingQueue? processingQueue = null,
+            ILoggerProvider? loggerProvider = null,
+            bool ignoreBackgroundServiceExceptions = false,
+            bool deleteTempOnDispose = true)
         {
             _summarizationEnabled = summarizationEnabled;
             _summarizerSummary = summarizerSummary;
             _maxConcurrency = maxConcurrency;
+            _queueCapacity = queueCapacity;
             _compressor = compressor;
+            _processingQueue = processingQueue;
+            _loggerProvider = loggerProvider;
+            _ignoreBackgroundServiceExceptions = ignoreBackgroundServiceExceptions;
+            _deleteTempOnDispose = deleteTempOnDispose;
             Directory.CreateDirectory(_tempDir);
         }
+
+        public string TempDirectory => _tempDir;
+
+        public string DatabasePath => Path.Combine(_tempDir, "audios.db");
 
         protected override IHost CreateHost(IHostBuilder builder)
         {
@@ -495,7 +747,7 @@ public class AudioProcessingIntegrationTests
                 ["Summarization__Enabled"] = _summarizationEnabled ? "true" : "false",
                 ["Summarization__MaxConcurrency"] = "1",
                 ["Processing__MaxConcurrency"] = _maxConcurrency.ToString(),
-                ["Processing__QueueCapacity"] = "100",
+                ["Processing__QueueCapacity"] = _queueCapacity.ToString(),
             });
 
             builder.UseEnvironment("Development");
@@ -512,6 +764,24 @@ public class AudioProcessingIntegrationTests
                     services.AddSingleton(_compressor);
                 }
 
+                if (_processingQueue is not null)
+                {
+                    services.RemoveAll<IProcessingQueue>();
+                    services.AddSingleton(_processingQueue);
+                }
+
+                if (_loggerProvider is not null)
+                {
+                    services.AddSingleton(_loggerProvider);
+                    services.AddSingleton<ILoggerProvider>(_loggerProvider);
+                }
+
+                if (_ignoreBackgroundServiceExceptions)
+                {
+                    services.Configure<HostOptions>(options =>
+                        options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
+                }
+
                 services.RemoveAll<IAudioSummarizer>();
                 services.AddSingleton<IAudioSummarizer>(_ => new FakeAudioSummarizer(_summarizerSummary));
             });
@@ -520,6 +790,11 @@ public class AudioProcessingIntegrationTests
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
+            if (!_deleteTempOnDispose)
+            {
+                return;
+            }
+
             try
             {
                 if (Directory.Exists(_tempDir))

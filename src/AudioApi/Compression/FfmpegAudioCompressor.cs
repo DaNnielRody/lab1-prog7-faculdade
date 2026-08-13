@@ -55,7 +55,7 @@ public class FfmpegAudioCompressor : IAudioCompressor
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct);
-            var stderr = await stderrTask;
+            await stderrTask;
             await stdoutTask;
 
             stopwatch.Stop();
@@ -63,9 +63,10 @@ public class FfmpegAudioCompressor : IAudioCompressor
             if (process.ExitCode != 0)
             {
                 _logger.LogError(
-                    "Falha ao comprimir áudio para AAC (ffmpeg saiu com código {ExitCode}) em {ElapsedMs}ms. Stderr: {Stderr}",
-                    process.ExitCode, stopwatch.ElapsedMilliseconds, stderr);
-                throw new InvalidOperationException($"ffmpeg falhou ao comprimir o áudio (código {process.ExitCode}).");
+                    "Falha ao comprimir áudio para AAC: ffmpeg saiu com código {ExitCode} em {ElapsedMs}ms.",
+                    process.ExitCode, stopwatch.ElapsedMilliseconds);
+                throw new AudioCompressionException(
+                    $"O ffmpeg não conseguiu decodificar ou comprimir o áudio (código {process.ExitCode}).");
             }
 
             var outputSizeBytes = new FileInfo(outputPath).Length;

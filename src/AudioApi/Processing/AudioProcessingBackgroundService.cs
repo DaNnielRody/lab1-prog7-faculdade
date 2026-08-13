@@ -5,6 +5,7 @@ using AudioApi.Models;
 using AudioApi.Options;
 using AudioApi.Storage;
 using AudioApi.Summarization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace AudioApi.Processing;
@@ -39,6 +40,8 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
 
         try
         {
+            await RecoverUnfinishedJobsAsync(stoppingToken);
+
             await Parallel.ForEachAsync(
                 _queue.ReadAllAsync(stoppingToken),
                 new ParallelOptions
@@ -48,10 +51,30 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                 },
                 async (audioId, ct) => await ProcessGuardedAsync(audioId, ct));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             _logger.LogInformation("Worker de compressão encerrando por cancelamento do host.");
         }
+        catch (Exception ex)
+        {
+            // An exception outside the known item-failure matrix means an invariant, dependency,
+            // database or configuration failure. Do not silently turn a programming bug into an
+            // ordinary audio failure: fail every in-memory job best-effort, log only safe context,
+            // then rethrow so BackgroundServiceExceptionBehavior applies (StopHost by default).
+            _logger.LogCritical(
+                "Worker de compressão interrompido por falha fatal {ExceptionType}.",
+                ex.GetType().Name);
+            await FailUnfinishedJobsAsync("O processamento foi interrompido por uma falha interna.");
+            throw;
+        }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // This service uses immediate rejection rather than waiting producers. Completing the
+        // writer makes any producer racing with shutdown receive a truthful admission failure.
+        _queue.Complete();
+        await base.StopAsync(cancellationToken);
     }
 
     private async Task ProcessGuardedAsync(Guid audioId, CancellationToken ct)
@@ -62,11 +85,19 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _logger.LogWarning("Compressão de {AudioId} cancelada pelo shutdown da aplicação.", audioId);
+            // Host cancellation is not an item failure. Revert Processing to Pending so startup
+            // recovery can admit it again; then propagate cancellation to the parallel loop.
+            await ResetForRecoveryAsync(audioId);
+            _logger.LogInformation("Compressão de {AudioId} interrompida pelo shutdown do host.", audioId);
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Falha inesperada ao comprimir {AudioId}.", audioId);
+            await MarkUnexpectedFailureAsync(audioId);
+            _logger.LogCritical(
+                "Falha inesperada {ExceptionType} ao processar {AudioId}; o worker será interrompido.",
+                ex.GetType().Name, audioId);
+            throw;
         }
     }
 
@@ -97,8 +128,7 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
             var content = await fileStore.OpenReadAsync(entity.StoredFileName, entity.ContentType, ct);
             if (content is null)
             {
-                throw new InvalidOperationException(
-                    $"O arquivo {entity.StoredFileName} não está mais presente no file store.");
+                throw new FileNotFoundException("O arquivo do áudio não está mais presente no file store.");
             }
 
             CompressedAudio compressed;
@@ -125,7 +155,30 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
             entity.ProcessingStatus = ProcessingStatus.Completed;
             entity.ProcessingError = null;
             entity.ProcessingUpdatedAtUtc = DateTime.UtcNow;
-            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
+            try
+            {
+                await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
+            }
+            catch
+            {
+                // If the database commit did not make the new file authoritative, remove that
+                // output. The original remains intact and is still the file referenced by the row.
+                if (!string.Equals(previousStoredFileName, stored.StoredFileName, StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        await fileStore.DeleteAsync(stored.StoredFileName, CancellationToken.None);
+                    }
+                    catch (Exception cleanupException) when (IsExpectedFileFailure(cleanupException))
+                    {
+                        _logger.LogCritical(
+                            "Não foi possível compensar a saída de {AudioId} após falha de banco ({ExceptionType}).",
+                            audioId, cleanupException.GetType().Name);
+                    }
+                }
+
+                throw;
+            }
 
             // Só depois do commit: até aqui a linha ainda aponta para o arquivo original, e um download
             // concorrente precisa encontrá-lo. Quando o upload já era .m4a, o nome antigo e o novo são o
@@ -136,13 +189,13 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                 {
                     await fileStore.DeleteAsync(previousStoredFileName, ct);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (IsExpectedFileFailure(ex))
                 {
                     // A linha já está correta e o áudio já é utilizável: um original órfão no file store
                     // não torna o job malsucedido.
                     _logger.LogWarning(
-                        ex, "Não foi possível apagar o arquivo original {StoredFileName} de {AudioId}.",
-                        previousStoredFileName, audioId);
+                        "Não foi possível apagar o arquivo original de {AudioId} ({ExceptionType}).",
+                        audioId, ex.GetType().Name);
                 }
             }
 
@@ -152,17 +205,129 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
 
             if (summarizationOptions.Enabled && !summaryQueue.TryEnqueue(audioId))
             {
-                _logger.LogWarning("Fila de sumarização cheia; o áudio {AudioId} não será resumido.", audioId);
+                const string reason = "A fila de sumarização está cheia; o resumo não foi admitido.";
+                entity.SummaryStatus = SummaryStatus.Failed;
+                entity.SummaryError = reason;
+                entity.SummaryUpdatedAtUtc = DateTime.UtcNow;
+                await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+                _logger.LogWarning("Resumo de {AudioId} rejeitado porque a fila está cheia.", audioId);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex) when (IsExpectedItemFailure(ex))
         {
             stopwatch.Stop();
-            _logger.LogError(ex, "Falha ao comprimir {AudioId} após {ElapsedMs}ms.", audioId, stopwatch.ElapsedMilliseconds);
+            _logger.LogWarning(
+                "Falha conhecida {ExceptionType} ao processar {AudioId} após {ElapsedMs}ms.",
+                ex.GetType().Name, audioId, stopwatch.ElapsedMilliseconds);
 
-            entity.MarkProcessingFailed(JobError.Clamp(ex.Message));
+            entity.MarkProcessingFailed(PublicFailureReason(ex));
 
             await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+        }
+    }
+
+    private static bool IsExpectedItemFailure(Exception ex) =>
+        ex is AudioCompressionException || IsExpectedFileFailure(ex);
+
+    private static bool IsExpectedFileFailure(Exception ex) =>
+        ex is IOException or UnauthorizedAccessException;
+
+    private static string PublicFailureReason(Exception ex) => ex switch
+    {
+        AudioCompressionException => "O ffmpeg não conseguiu decodificar ou comprimir o áudio.",
+        FileNotFoundException => "O arquivo do áudio não está disponível no file store.",
+        UnauthorizedAccessException => "O file store recusou acesso ao arquivo do áudio.",
+        IOException => "Ocorreu uma falha de I/O durante o processamento do áudio.",
+        _ => "O processamento do áudio falhou.",
+    };
+
+    private async Task RecoverUnfinishedJobsAsync(CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unfinished = await db.AudioFiles
+            .Where(audio => audio.ProcessingStatus == ProcessingStatus.Pending
+                || audio.ProcessingStatus == ProcessingStatus.Processing)
+            .OrderBy(audio => audio.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        foreach (var entity in unfinished)
+        {
+            entity.ProcessingStatus = ProcessingStatus.Pending;
+            entity.ProcessingError = null;
+            entity.ProcessingUpdatedAtUtc = DateTime.UtcNow;
+
+            if (!_queue.TryEnqueue(entity.Id))
+            {
+                entity.MarkProcessingFailed(
+                    "O job não pôde ser recuperado porque a fila de processamento está cheia.");
+            }
+        }
+
+        if (unfinished.Count > 0)
+        {
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
+            _logger.LogInformation("Recuperados {JobCount} jobs de compressão interrompidos.", unfinished.Count);
+        }
+    }
+
+    private async Task ResetForRecoveryAsync(Guid audioId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
+        if (entity is null || entity.ProcessingStatus != ProcessingStatus.Processing)
+        {
+            return;
+        }
+
+        entity.ProcessingStatus = ProcessingStatus.Pending;
+        entity.ProcessingError = null;
+        entity.ProcessingUpdatedAtUtc = DateTime.UtcNow;
+        await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+    }
+
+    private async Task MarkUnexpectedFailureAsync(Guid audioId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.MarkProcessingFailed("O processamento encontrou uma falha interna inesperada.");
+        await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+    }
+
+    private async Task FailUnfinishedJobsAsync(string reason)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var unfinished = await db.AudioFiles
+                .Where(audio => audio.ProcessingStatus == ProcessingStatus.Pending
+                    || audio.ProcessingStatus == ProcessingStatus.Processing)
+                .ToListAsync(CancellationToken.None);
+
+            foreach (var entity in unfinished)
+            {
+                entity.MarkProcessingFailed(reason);
+            }
+
+            if (unfinished.Count > 0)
+            {
+                await _writeGate.WriteAsync(
+                    token => db.SaveChangesAsync(token), CancellationToken.None);
+            }
+        }
+        catch (Exception cleanupException)
+        {
+            _logger.LogCritical(
+                "Não foi possível terminalizar jobs após falha fatal ({ExceptionType}).",
+                cleanupException.GetType().Name);
         }
     }
 
