@@ -14,7 +14,10 @@ public sealed class ProcessingQueue : IProcessingQueue
 
         _channel = Channel.CreateBounded<Guid>(new BoundedChannelOptions(capacity)
         {
-            FullMode = BoundedChannelFullMode.DropWrite,
+            // Wait makes TryWrite an admission check: it returns false when the buffer is full.
+            // DropWrite cannot be used here because it returns true even when it discards the
+            // new item, which would leave the persisted audio permanently Pending.
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
         });
@@ -23,4 +26,6 @@ public sealed class ProcessingQueue : IProcessingQueue
     public bool TryEnqueue(Guid audioId) => _channel.Writer.TryWrite(audioId);
 
     public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) => _channel.Reader.ReadAllAsync(ct);
+
+    public void Complete() => _channel.Writer.TryComplete();
 }

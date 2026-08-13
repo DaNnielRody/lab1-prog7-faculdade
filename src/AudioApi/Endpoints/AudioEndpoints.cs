@@ -26,7 +26,8 @@ public static class AudioEndpoints
             .DisableAntiforgery()
             .Accepts<IFormFile>("multipart/form-data")
             .Produces<AudioFileDto>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapGet("/", ListAsync)
             .WithName("ListAudios")
@@ -125,10 +126,18 @@ public static class AudioEndpoints
         if (!processingQueue.TryEnqueue(id))
         {
             const string reason = "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.";
-            logger.LogWarning("Fila de processamento cheia; o áudio {Id} não será comprimido.", id);
+            logger.LogWarning("Upload {Id} rejeitado porque a fila de processamento está cheia.", id);
 
             entity.MarkProcessingFailed(reason);
-            await db.SaveChangesAsync(ct);
+            // The file and row already exist. Keeping both, with a terminal Failed state, is the
+            // safest compensation: deleting either one first could leave an orphan if the other
+            // deletion failed. A later retry is a new upload with a different Guid/file name.
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            return Results.Problem(
+                title: "Processamento temporariamente indisponível",
+                detail: reason,
+                statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 
         var dto = AudioFileDto.FromEntity(entity);
