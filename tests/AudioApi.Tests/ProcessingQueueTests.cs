@@ -68,6 +68,24 @@ public sealed class ProcessingQueueTests
     }
 
     [Fact]
+    public async Task ProcessingQueue_ShutdownHonorsAnOutstandingReservationThenCompletes()
+    {
+        var queue = new ProcessingQueue(
+            Microsoft.Extensions.Options.Options.Create(new ProcessingOptions { QueueCapacity = 1 }));
+        Assert.True(queue.TryReserve(out var admission));
+        var id = Guid.NewGuid();
+
+        queue.Complete();
+        Assert.False(queue.TryReserve(out _));
+        admission!.Enqueue(id);
+        admission.Dispose();
+
+        var observed = new List<Guid>();
+        await foreach (var item in queue.ReadAllAsync(CancellationToken.None)) observed.Add(item);
+        Assert.Equal([id], observed);
+    }
+
+    [Fact]
     public async Task SummaryQueue_AlsoRejectsInsteadOfSilentlyDroppingWhenFull()
     {
         var queue = new SummaryQueue(

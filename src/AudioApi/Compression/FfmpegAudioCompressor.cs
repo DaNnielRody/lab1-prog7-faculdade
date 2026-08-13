@@ -54,7 +54,19 @@ public class FfmpegAudioCompressor : IAudioCompressor
 
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
+            try
+            {
+                await process.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                throw;
+            }
             await stderrTask;
             await stdoutTask;
 
@@ -84,21 +96,22 @@ public class FfmpegAudioCompressor : IAudioCompressor
 
             return new CompressedAudio(outputStream, ".m4a", "audio/mp4");
         }
-        catch
-        {
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-
-            throw;
-        }
         finally
         {
-            if (File.Exists(inputPath))
-            {
-                File.Delete(inputPath);
-            }
+            DeleteTemporaryFile(outputPath);
+            DeleteTemporaryFile(inputPath);
+        }
+    }
+
+    private void DeleteTemporaryFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Não foi possível remover arquivo temporário ({ExceptionType}).", ex.GetType().Name);
         }
     }
 }

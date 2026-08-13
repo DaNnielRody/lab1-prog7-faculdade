@@ -49,7 +49,7 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                     MaxDegreeOfParallelism = _options.EffectiveMaxConcurrency,
                     CancellationToken = stoppingToken,
                 },
-                async (audioId, ct) => await ProcessGuardedAsync(audioId, ct));
+                async (audioId, ct) => await ProcessGuardedAsync(audioId, ct, stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -65,7 +65,7 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                 "Worker de compressão interrompido por falha fatal {ExceptionType}.",
                 ex.GetType().Name);
             await FailUnfinishedJobsAsync("O processamento foi interrompido por uma falha interna.");
-            throw;
+            throw ex is FatalAudioProcessingException ? ex : new FatalAudioProcessingException();
         }
     }
 
@@ -77,27 +77,28 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
-    private async Task ProcessGuardedAsync(Guid audioId, CancellationToken ct)
+    private async Task ProcessGuardedAsync(
+        Guid audioId, CancellationToken operationToken, CancellationToken hostToken)
     {
         try
         {
-            await ProcessAsync(audioId, ct);
+            await ProcessAsync(audioId, operationToken);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (hostToken.IsCancellationRequested)
         {
             // Host cancellation is not an item failure. Revert Processing to Pending so startup
             // recovery can admit it again; then propagate cancellation to the parallel loop.
-            await ResetForRecoveryAsync(audioId);
+            await TryResetForRecoveryAsync(audioId);
             _logger.LogInformation("Compressão de {AudioId} interrompida pelo shutdown do host.", audioId);
             throw;
         }
         catch (Exception ex)
         {
-            await MarkUnexpectedFailureAsync(audioId);
+            await TryMarkUnexpectedFailureAsync(audioId);
             _logger.LogCritical(
                 "Falha inesperada {ExceptionType} ao processar {AudioId}; o worker será interrompido.",
                 ex.GetType().Name, audioId);
-            throw;
+            throw new FatalAudioProcessingException();
         }
     }
 
@@ -227,7 +228,7 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
     }
 
     private static bool IsExpectedItemFailure(Exception ex) =>
-        ex is AudioCompressionException || IsExpectedFileFailure(ex);
+        ex is AudioCompressionException or FileNotFoundException;
 
     private static bool IsExpectedFileFailure(Exception ex) =>
         ex is IOException or UnauthorizedAccessException;
@@ -271,34 +272,40 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         }
     }
 
-    private async Task ResetForRecoveryAsync(Guid audioId)
+    private async Task TryResetForRecoveryAsync(Guid audioId)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
-        if (entity is null || entity.ProcessingStatus != ProcessingStatus.Processing)
+        try
         {
-            return;
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
+            if (entity is null || entity.ProcessingStatus != ProcessingStatus.Processing) return;
+            entity.ProcessingStatus = ProcessingStatus.Pending;
+            entity.ProcessingError = null;
+            entity.ProcessingUpdatedAtUtc = DateTime.UtcNow;
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
         }
-
-        entity.ProcessingStatus = ProcessingStatus.Pending;
-        entity.ProcessingError = null;
-        entity.ProcessingUpdatedAtUtc = DateTime.UtcNow;
-        await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+        catch (Exception ex)
+        {
+            _logger.LogCritical("Falha ao preparar {AudioId} para recuperação ({ExceptionType}).", audioId, ex.GetType().Name);
+        }
     }
 
-    private async Task MarkUnexpectedFailureAsync(Guid audioId)
+    private async Task TryMarkUnexpectedFailureAsync(Guid audioId)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
-        if (entity is null)
+        try
         {
-            return;
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = await db.AudioFiles.FindAsync([audioId], CancellationToken.None);
+            if (entity is null) return;
+            entity.MarkProcessingFailed("O processamento encontrou uma falha interna inesperada.");
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
         }
-
-        entity.MarkProcessingFailed("O processamento encontrou uma falha interna inesperada.");
-        await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+        catch (Exception ex)
+        {
+            _logger.LogCritical("Falha ao terminalizar {AudioId} ({ExceptionType}).", audioId, ex.GetType().Name);
+        }
     }
 
     private async Task FailUnfinishedJobsAsync(string reason)

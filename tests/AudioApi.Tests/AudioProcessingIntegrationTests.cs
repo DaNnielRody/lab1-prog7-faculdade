@@ -266,6 +266,9 @@ public class AudioProcessingIntegrationTests
 
         var failed = processed.Count(d => d.ProcessingStatus == ProcessingStatus.Failed);
         Assert.True(failed == 0, $"{failed} de {uploads} uploads concorrentes falharam no processamento.");
+        Assert.Equal(uploads, processed.Select(audio => audio.StoredFileName).Distinct().Count());
+        Assert.All(processed, audio =>
+            Assert.Equal($"{audio.Id:N}.m4a", audio.StoredFileName));
     }
 
     [Fact]
@@ -342,7 +345,7 @@ public class AudioProcessingIntegrationTests
     }
 
     [Fact]
-    public async Task Upload_WhenProcessingQueueIsFull_Returns503AndPersistsTerminalFailedRecordWithFile()
+    public async Task Upload_WhenProcessingQueueIsFull_Returns503WithoutPersistingFileOrRecord()
     {
         using var factory = new ProcessingAppFactory(processingQueue: new RejectingProcessingQueue());
         var client = factory.CreateClient();
@@ -352,14 +355,33 @@ public class AudioProcessingIntegrationTests
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         var audios = await client.GetFromJsonAsync<List<AudioFileDto>>("/api/audios");
-        var failed = Assert.Single(audios!);
-        Assert.Equal(ProcessingStatus.Failed, failed.ProcessingStatus);
-        Assert.NotNull(failed.ProcessingError);
-        Assert.DoesNotContain(audios!, audio => audio.ProcessingStatus == ProcessingStatus.Pending);
+        Assert.Empty(audios!);
+    }
 
-        var download = await client.GetAsync($"/api/audios/{failed.Id}/download");
-        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
-        Assert.NotEmpty(await download.Content.ReadAsByteArrayAsync());
+    [Fact]
+    public async Task Upload_RealQueueSaturationRejectsExplicitlyThenRecoversCapacity()
+    {
+        var compressor = new BlockingAudioCompressor(expectedConcurrentJobs: 1);
+        using var factory = new ProcessingAppFactory(maxConcurrency: 1, queueCapacity: 1, compressor: compressor);
+        var client = factory.CreateClient();
+        var bytes = TestAudio.CreateValidWavBytes();
+
+        var active = await UploadAsync(client, bytes, "active.wav", "audio/wav");
+        await compressor.AllExpectedJobsStarted.WaitAsync(TimeSpan.FromSeconds(10));
+        var buffered = await UploadAsync(client, bytes, "buffered.wav", "audio/wav");
+        using var rejectedContent = CreateUploadContent(bytes, "rejected.wav");
+        var rejected = await client.PostAsync("/api/audios", rejectedContent);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, rejected.StatusCode);
+
+        compressor.Release();
+        Assert.Equal(ProcessingStatus.Completed, (await PollUntilProcessedAsync(client, active.Id)).ProcessingStatus);
+        Assert.Equal(ProcessingStatus.Completed, (await PollUntilProcessedAsync(client, buffered.Id)).ProcessingStatus);
+
+        var recovered = await UploadAsync(client, bytes, "recovered.wav", "audio/wav");
+        Assert.Equal(ProcessingStatus.Completed, (await PollUntilProcessedAsync(client, recovered.Id)).ProcessingStatus);
+        var all = await client.GetFromJsonAsync<List<AudioFileDto>>("/api/audios");
+        Assert.Equal(3, all!.Count);
+        Assert.DoesNotContain(all, audio => audio.ProcessingStatus == ProcessingStatus.Pending);
     }
 
     [Fact]
@@ -382,8 +404,7 @@ public class AudioProcessingIntegrationTests
         Assert.Equal(ProcessingStatus.Completed, completed.ProcessingStatus);
         Assert.Equal(2, compressor.CallCount);
 
-        var workerLogs = logs.Entries.Where(entry =>
-            entry.Category == typeof(AudioProcessingBackgroundService).FullName).ToList();
+        var workerLogs = logs.Entries.ToList();
         Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("customer-secret", StringComparison.Ordinal));
         Assert.DoesNotContain(workerLogs, entry => entry.Message.Contains("/private/", StringComparison.Ordinal));
         Assert.DoesNotContain(workerLogs, entry => entry.Exception is not null);
@@ -457,6 +478,12 @@ public class AudioProcessingIntegrationTests
                 entry.Category == typeof(AudioProcessingBackgroundService).FullName).ToList();
             Assert.DoesNotContain(workerLogs, entry =>
                 entry.Level >= LogLevel.Warning && entry.Message.Contains(audioId.ToString(), StringComparison.OrdinalIgnoreCase));
+
+            compressor.Release();
+            using var recoveryFactory = new ProcessingAppFactory(tempDirectory: factory.TempDirectory);
+            var recoveryClient = recoveryFactory.CreateClient();
+            var recovered = await PollUntilProcessedAsync(recoveryClient, audioId);
+            Assert.Equal(ProcessingStatus.Completed, recovered.ProcessingStatus);
         }
         finally
         {
@@ -647,6 +674,12 @@ public class AudioProcessingIntegrationTests
         private readonly System.Threading.Channels.Channel<Guid> _channel =
             System.Threading.Channels.Channel.CreateUnbounded<Guid>();
 
+        public bool TryReserve(out IProcessingQueueAdmission? admission)
+        {
+            admission = null;
+            return false;
+        }
+
         public bool TryEnqueue(Guid audioId) => false;
 
         public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken ct) =>
@@ -720,8 +753,11 @@ public class AudioProcessingIntegrationTests
             IProcessingQueue? processingQueue = null,
             ILoggerProvider? loggerProvider = null,
             bool ignoreBackgroundServiceExceptions = false,
-            bool deleteTempOnDispose = true)
+            bool deleteTempOnDispose = true,
+            string? tempDirectory = null)
         {
+            _tempDir = tempDirectory
+                ?? Path.Combine(Path.GetTempPath(), "audioapi-processing-tests-" + Guid.NewGuid().ToString("N"));
             _summarizationEnabled = summarizationEnabled;
             _summarizerSummary = summarizerSummary;
             _maxConcurrency = maxConcurrency;

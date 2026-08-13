@@ -84,6 +84,17 @@ public static class AudioEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        if (!processingQueue.TryReserve(out var admission))
+        {
+            return Results.Problem(
+                title: "Processamento temporariamente indisponível",
+                detail: "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        using (admission)
+        {
+
         var id = Guid.NewGuid();
         var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
 
@@ -93,11 +104,13 @@ public static class AudioEndpoints
             originalExtension = ".bin";
         }
 
-        StoredFile stored;
-        await using (var stream = file.OpenReadStream())
+        StoredFile? stored = null;
+        try
         {
-            stored = await fileStore.SaveAsync(id, originalExtension, stream, baseUrl, ct);
-        }
+            await using (var stream = file.OpenReadStream())
+            {
+                stored = await fileStore.SaveAsync(id, originalExtension, stream, baseUrl, ct);
+            }
 
         var summarizationEnabled = summarizationOptions.Value.Enabled;
 
@@ -118,30 +131,33 @@ public static class AudioEndpoints
             SummaryUpdatedAtUtc = summarizationEnabled ? DateTime.UtcNow : null,
         };
 
-        db.AudioFiles.Add(entity);
-        await db.SaveChangesAsync(ct);
+            db.AudioFiles.Add(entity);
+            await db.SaveChangesAsync(ct);
+            admission!.Enqueue(id);
 
-        logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
+            logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
 
-        if (!processingQueue.TryEnqueue(id))
-        {
-            const string reason = "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.";
-            logger.LogWarning("Upload {Id} rejeitado porque a fila de processamento está cheia.", id);
-
-            entity.MarkProcessingFailed(reason);
-            // The file and row already exist. Keeping both, with a terminal Failed state, is the
-            // safest compensation: deleting either one first could leave an orphan if the other
-            // deletion failed. A later retry is a new upload with a different Guid/file name.
-            await db.SaveChangesAsync(CancellationToken.None);
-
-            return Results.Problem(
-                title: "Processamento temporariamente indisponível",
-                detail: reason,
-                statusCode: StatusCodes.Status503ServiceUnavailable);
+            var dto = AudioFileDto.FromEntity(entity);
+            return Results.Created($"/api/audios/{id}", dto);
         }
-
-        var dto = AudioFileDto.FromEntity(entity);
-        return Results.Created($"/api/audios/{id}", dto);
+        catch
+        {
+            if (stored is not null)
+            {
+                try
+                {
+                    await fileStore.DeleteAsync(stored.StoredFileName, CancellationToken.None);
+                }
+                catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogCritical(
+                        "Não foi possível compensar arquivo do upload {Id} ({ExceptionType}).",
+                        id, cleanupException.GetType().Name);
+                }
+            }
+            throw;
+        }
+        }
     }
 
     private static async Task<Ok<List<AudioFileDto>>> ListAsync(AppDbContext db, CancellationToken ct)
