@@ -33,33 +33,28 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var gate = new SemaphoreSlim(_options.EffectiveMaxConcurrency, _options.EffectiveMaxConcurrency);
-        var running = new List<Task>();
-
         _logger.LogInformation(
             "Worker de compressão iniciado (concorrência: {MaxConcurrency}, capacidade da fila: {QueueCapacity}).",
             _options.EffectiveMaxConcurrency, _options.QueueCapacity);
 
         try
         {
-            await foreach (var audioId in _queue.ReadAllAsync(stoppingToken))
-            {
-                await gate.WaitAsync(stoppingToken);
-                running.Add(ProcessGuardedAsync(audioId, gate, stoppingToken));
-                running.RemoveAll(task => task.IsCompleted);
-            }
+            await Parallel.ForEachAsync(
+                _queue.ReadAllAsync(stoppingToken),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = _options.EffectiveMaxConcurrency,
+                    CancellationToken = stoppingToken,
+                },
+                async (audioId, ct) => await ProcessGuardedAsync(audioId, ct));
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Worker de compressão encerrando: {Pending} job(s) em andamento.", running.Count);
-        }
-        finally
-        {
-            await Task.WhenAll(running);
+            _logger.LogInformation("Worker de compressão encerrando por cancelamento do host.");
         }
     }
 
-    private async Task ProcessGuardedAsync(Guid audioId, SemaphoreSlim gate, CancellationToken ct)
+    private async Task ProcessGuardedAsync(Guid audioId, CancellationToken ct)
     {
         try
         {
@@ -72,10 +67,6 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Falha inesperada ao comprimir {AudioId}.", audioId);
-        }
-        finally
-        {
-            gate.Release();
         }
     }
 
