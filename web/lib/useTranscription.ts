@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, getSummary, uploadAudio } from "@/lib/api";
+import type { AudioValidationState } from "@/lib/audioValidation";
+import { validateAudioFileInBackground } from "@/lib/audioValidationClient";
 import type {
   AudioFileDto,
   AudioSummaryDto,
@@ -53,6 +55,8 @@ export interface UseTranscription {
   audio: AudioFileDto | null;
   summary: AudioSummaryDto | null;
   error: string | null;
+  validation: AudioValidationState;
+  canUpload: boolean;
   messages: ThreadMessage[];
   selectFile: (file: File) => void;
   clearFile: () => void;
@@ -68,6 +72,7 @@ export function useTranscription(): UseTranscription {
   const [audio, setAudio] = useState<AudioFileDto | null>(null);
   const [summary, setSummary] = useState<AudioSummaryDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<AudioValidationState>({ status: "idle" });
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -76,9 +81,25 @@ export function useTranscription(): UseTranscription {
   const lastPhaseRef = useRef<Phase>("idle");
   const fileRef = useRef<SelectedFile | null>(null);
   const audioRef = useRef<AudioFileDto | null>(null);
+  const validationRef = useRef<AudioValidationState>({ status: "idle" });
+  const validationSeqRef = useRef(0);
+  const validationAbortRef = useRef<AbortController | null>(null);
+  const validationTaskRef = useRef<Promise<AudioValidationState> | null>(null);
 
   const generationRef = useRef(0);
   const isCurrent = useCallback((generation: number) => generationRef.current === generation, []);
+
+  const updateValidation = useCallback((next: AudioValidationState) => {
+    validationRef.current = next;
+    setValidation(next);
+  }, []);
+
+  const cancelValidation = useCallback(() => {
+    validationSeqRef.current += 1;
+    validationAbortRef.current?.abort();
+    validationAbortRef.current = null;
+    validationTaskRef.current = null;
+  }, []);
 
   const stopPoller = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -148,30 +169,76 @@ export function useTranscription(): UseTranscription {
     [isCurrent, poll, stopPoller],
   );
 
-  const selectFile = useCallback((next: File) => {
-    if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
-    const selected: SelectedFile = {
-      file: next,
-      name: next.name,
-      sizeBytes: next.size,
-      objectUrl: URL.createObjectURL(next),
-    };
-    fileRef.current = selected;
-    setFile(selected);
-    setError(null);
-  }, []);
+  const selectFile = useCallback(
+    (next: File) => {
+      cancelValidation();
+      if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
+      const selected: SelectedFile = {
+        file: next,
+        name: next.name,
+        sizeBytes: next.size,
+        objectUrl: URL.createObjectURL(next),
+      };
+      fileRef.current = selected;
+      setFile(selected);
+      setError(null);
+      updateValidation({ status: "validating" });
+
+      const validationSeq = validationSeqRef.current;
+      const controller = new AbortController();
+      validationAbortRef.current = controller;
+      const task = validateAudioFileInBackground(next, controller.signal)
+        .then<AudioValidationState>((result) =>
+          result.valid ? { status: "valid" } : { status: "invalid", message: result.message },
+        )
+        .catch<AudioValidationState>((cause: unknown) => {
+          if (cause instanceof DOMException && cause.name === "AbortError") {
+            return { status: "idle" };
+          }
+          return {
+            status: "error",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Não foi possível validar o arquivo de áudio.",
+          };
+        });
+      validationTaskRef.current = task;
+      void task.then((nextState) => {
+        if (validationSeqRef.current !== validationSeq || fileRef.current !== selected) return;
+        validationAbortRef.current = null;
+        validationTaskRef.current = null;
+        updateValidation(nextState);
+      });
+    },
+    [cancelValidation, updateValidation],
+  );
 
   const clearFile = useCallback(() => {
+    cancelValidation();
     if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
     fileRef.current = null;
     setFile(null);
-  }, []);
+    setError(null);
+    updateValidation({ status: "idle" });
+  }, [cancelValidation, updateValidation]);
 
   const start = useCallback(async () => {
     const selected = fileRef.current;
     if (!selected) {
       setError(NO_FILE_MESSAGE);
       transition("failed");
+      return;
+    }
+
+    const pendingValidation = validationTaskRef.current;
+    if (pendingValidation) await pendingValidation;
+
+    const validationState = validationRef.current;
+    if (fileRef.current !== selected || validationState.status !== "valid") {
+      if (validationState.status === "invalid" || validationState.status === "error") {
+        setError(validationState.message);
+      }
       return;
     }
 
@@ -227,6 +294,7 @@ export function useTranscription(): UseTranscription {
 
   const reset = useCallback(() => {
     stopPoller();
+    cancelValidation();
 
     generationRef.current += 1;
     if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
@@ -238,19 +306,21 @@ export function useTranscription(): UseTranscription {
     setAudio(null);
     setSummary(null);
     setError(null);
+    updateValidation({ status: "idle" });
     setProgress(0);
     setMessages([]);
     setPhase("idle");
-  }, [stopPoller]);
+  }, [cancelValidation, stopPoller, updateValidation]);
 
   useEffect(() => {
     return () => {
       generationRef.current += 1;
+      cancelValidation();
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
       intervalRef.current = null;
       if (fileRef.current) URL.revokeObjectURL(fileRef.current.objectUrl);
     };
-  }, []);
+  }, [cancelValidation]);
 
   return {
     phase,
@@ -259,6 +329,8 @@ export function useTranscription(): UseTranscription {
     audio,
     summary,
     error,
+    validation,
+    canUpload: phase === "idle" && file !== null && validation.status === "valid",
     messages,
     selectFile,
     clearFile,

@@ -21,7 +21,7 @@ const HISTORY_LIMIT = 10;
 export default function TranscriptionScreen() {
   const session = useTranscription();
   const { phase, error, file, summary, audio } = session;
-  const processed = useProcessedAudios(phase);
+  const processed = useProcessedAudios(phase, session.audio);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
@@ -55,9 +55,9 @@ export default function TranscriptionScreen() {
   const dialogOpen = uploadOpen || completedOpen || failedOpen || restartOpen;
 
   // The toast is screen-level, not list-level: it belongs to the composition, not to the
-  // component whose fetch failed. Producer = "list fetch failed AND zero rows held" — the one
-  // row of the render truth table where the region itself draws nothing.
-  const listUnreachable = processed.error !== null && processed.audios.length === 0;
+  // component whose fetch failed. An accepted upload is omitted from `history` because its live
+  // session already renders below; the toast remains reserved for errors with no history rows.
+  const listUnreachable = processed.error !== null && history.length === 0;
   const { errorSeq, reload } = processed;
   useEffect(() => {
     if (!listUnreachable) {
@@ -74,7 +74,7 @@ export default function TranscriptionScreen() {
 
   function handleSubmit() {
     if (phase === "idle") {
-      if (file) setUploadOpen(true);
+      if (file && session.canUpload) setUploadOpen(true);
       return;
     }
     if (phase === "failed") {
@@ -89,6 +89,7 @@ export default function TranscriptionScreen() {
   }
 
   function handleConfirmUpload() {
+    if (!session.canUpload) return;
     setUploadOpen(false);
     void session.start();
   }
@@ -132,6 +133,7 @@ export default function TranscriptionScreen() {
       <SettingsPanel
         phase={phase}
         file={file}
+        validation={session.validation}
         onSelectFile={session.selectFile}
         onClearFile={session.clearFile}
         onSubmit={handleSubmit}
@@ -142,6 +144,7 @@ export default function TranscriptionScreen() {
         file={file}
         onClose={() => setUploadOpen(false)}
         onConfirm={handleConfirmUpload}
+        canConfirm={session.canUpload}
       />
       <CompletedDialog
         open={completedOpen}

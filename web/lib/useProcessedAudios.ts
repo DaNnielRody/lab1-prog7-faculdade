@@ -37,7 +37,10 @@ export interface UseProcessedAudios {
   reload: () => void;
 }
 
-export function useProcessedAudios(phase: Phase): UseProcessedAudios {
+export function useProcessedAudios(
+  phase: Phase,
+  acceptedAudio: AudioFileDto | null = null,
+): UseProcessedAudios {
   const [audios, setAudios] = useState<AudioFileDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +49,8 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
   const generationRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inFlightRef = useRef<AbortController | null>(null);
+  const acceptedAudioRef = useRef<AudioFileDto | null>(null);
+  if (acceptedAudio !== null) acceptedAudioRef.current = acceptedAudio;
 
   const stopPoller = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -75,7 +80,16 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
     }
 
     if (generationRef.current !== generation) return;
-    setAudios(dtos);
+    const accepted = acceptedAudioRef.current;
+    const acceptedFromServer = accepted
+      ? dtos.find((audio) => audio.id === accepted.id) ?? null
+      : null;
+    if (acceptedFromServer) acceptedAudioRef.current = acceptedFromServer;
+    setAudios(
+      accepted && !acceptedFromServer
+        ? [accepted, ...dtos.filter((audio) => audio.id !== accepted.id)]
+        : dtos,
+    );
     setError(null);
     setLoading(false);
   }, []);
@@ -87,6 +101,20 @@ export function useProcessedAudios(phase: Phase): UseProcessedAudios {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The POST already returned the authoritative DTO. Show it before the follow-up GET completes,
+  // then reconcile with the server list. This includes Pending/Processing rows immediately and
+  // also starts this hook's list poller without waiting for another network round-trip.
+  useEffect(() => {
+    if (!acceptedAudio) return;
+    setAudios((previous) => [
+      acceptedAudio,
+      ...previous.filter((audio) => audio.id !== acceptedAudio.id),
+    ]);
+    setError(null);
+    setLoading(false);
+    void load();
+  }, [acceptedAudio, load]);
 
   // The session finished: the server now holds a row whose state the list must show.
   useEffect(() => {

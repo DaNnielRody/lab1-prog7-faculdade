@@ -397,13 +397,15 @@ Semi Bold in `{colors.text.primary}`, padding `{spacing.3}` / `{spacing.5}`, rad
 color is unchanged.
 
 **`{component.button-primary-disabled}`** — background `{colors.surface.disabled}`, label
-`{colors.text.disabled}`, cursor `not-allowed`. Used for "Transcrever" until a file is selected.
+`{colors.text.disabled}`, cursor `not-allowed`. Used for "Transcrever" until a file is selected and
+validated, and with the copy "Arquivo inválido" after a rejected client-side validation.
 
 **`{component.button-primary-loading}`** — background `{colors.brand.primary}`, label prefixed by a
-16px rotating glyph, text "Enviando…" / "Transcrevendo…", control is `aria-busy` and
+16px rotating glyph, text "Validando áudio…" / "Enviando…" / "Transcrevendo…", control is `aria-busy` and
 non-interactive. When the loading state is *waiting on the server* rather than *sending bytes*
-(i.e. `Processing`), the fill drops to `{colors.surface.disabled}` with `{colors.text.disabled}`
-label — the button is no longer the thing making progress, the thread is.
+(i.e. `Processing`) or waiting on the validation Worker, the fill drops to
+`{colors.surface.disabled}` with `{colors.text.disabled}` label — the button is no longer the thing
+making progress.
 
 **`{component.button-ghost}`** — background `{colors.surface.canvas}`, 1px
 `{colors.surface.hairline}` border, label `{type.label}` in `{colors.text.primary}`, padding
@@ -452,6 +454,22 @@ truncate with an ellipsis — it must never push the dismiss control out of the 
 The metadata line shows only what has been measured: size and format always, duration **only**
 where the audio element has reported it (the player). A card outside the player reads
 "3,4 MB · WAV", never a guessed "2:40".
+
+**`{component.file-validation-message}`** — one `{type.caption}` line in
+`{colors.text.secondary}`, directly below `{component.file-card}`. It has three mutually exclusive
+variants: "Validando arquivo de áudio…" while the Worker is active; "Arquivo validado e pronto para
+envio." after acceptance; or the validator's concrete rejection/failure reason. It is persistent
+selection state, not a transient announcement, so it has no `role` or `aria-live` and does not add a
+third live region. During validation the panel CTA is `{component.button-primary-loading}`; after a
+rejection it is `{component.button-primary-disabled}`. This inline treatment is only for failures
+detected **before any request**; a rejection returned by the API remains
+`{component.bubble-error}` in the thread.
+
+The centered panel helper mirrors that state without introducing another semantic treatment. While
+validation runs it reads "A extensão, o tipo, o tamanho e a assinatura estão sendo verificados fora
+da interface." After rejection or Worker failure it reads "Remova o arquivo e selecione outro áudio
+para continuar." Both remain `{type.caption}` in `{colors.text.secondary}` as specified by
+`{component.settings-panel}`.
 
 **`{component.select}`** — height 40px, background `{colors.surface.canvas}`, 1px
 `{colors.surface.hairline}`, radius `{rounded.sm}`, padding `{spacing.3}`, value in `{type.body}`
@@ -701,7 +719,9 @@ padding-x `{spacing.6}`. Left: `{type.heading}` title. Right: the current
 **`{component.settings-panel}`** — 320px, `{colors.surface.muted}`, 1px left
 `{colors.surface.hairline}`, padding `{spacing.5}`, field gap `{spacing.5}`. Order is fixed: header
 → Áudio → Idioma → Resumo → Estado (only once an upload exists) → flexible spacer → CTA → helper
-line in `{type.caption}` `{colors.text.secondary}`, centered.
+line in `{type.caption}` `{colors.text.secondary}`, centered. When a file is selected, the Áudio
+group composes `{component.file-card}` followed by `{component.file-validation-message}` at the
+group's existing `{spacing.2}` gap.
 
 **`{component.player-bar}`** — 84px, `{colors.surface.canvas}`, 1px top
 `{colors.surface.hairline}`, padding-x `{spacing.6}`. Hosts one `{component.player-card}`.
@@ -1112,9 +1132,10 @@ scale below 20px.
   measurements in §2 rather than sampled pixel-for-pixel.
 - **Screens not designed**: none are promised. The rail used to advertise "Biblioteca",
   "Arquivos" and "Chaves de API"; those entries were removed on the owner's instruction because
-  nav that leads nowhere is a broken promise. Error surfaces for rejected files (wrong extension,
-  > 50 MB, 422 "not decodable as audio") are named in copy but still have no dedicated dialog —
-  they surface through `{component.bubble-error}`.
+  nav that leads nowhere is a broken promise. Client-side rejections (wrong extension, MIME,
+  > 50 MB, empty file or incompatible signature) use the inline
+  `{component.file-validation-message}` specified in §7. Server-side upload/decode failures still
+  have no dedicated dialog and surface through `{component.bubble-error}`.
 - **Multi-file / multi-session behavior is only half designed.** The thread still models exactly
   one *live* audio at a time, and queueing several uploads has no design. Reading back previous
   audios **is** designed now — §7 Thread, History messages — but only as read-only messages: there
