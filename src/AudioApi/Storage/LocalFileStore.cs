@@ -28,16 +28,39 @@ public class LocalFileStore : IFileStore
     {
         var storedFileName = $"{id:N}{extension}";
         var fullPath = Path.Combine(_rootPath, storedFileName);
+        var temporaryPath = Path.Combine(
+            _rootPath, $".{storedFileName}.{Guid.NewGuid():N}.uploading");
 
-        await using (var target = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        try
         {
-            await content.CopyToAsync(target, ct);
+            await using (var target = new FileStream(
+                temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                await content.CopyToAsync(target, ct);
+            }
+
+            File.Move(temporaryPath, fullPath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(temporaryPath);
+            }
+            catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(
+                    "Não foi possível remover um arquivo temporário incompleto ({ExceptionType}).",
+                    cleanupException.GetType().Name);
+            }
+
+            throw;
         }
 
         var size = new FileInfo(fullPath).Length;
         var url = $"{baseUrl.TrimEnd('/')}/api/audios/{id}/download";
 
-        _logger.LogInformation("Stored file {StoredFileName} ({Size} bytes) at {Path}", storedFileName, size, fullPath);
+        _logger.LogInformation("Stored file {StoredFileName} ({Size} bytes)", storedFileName, size);
         return new StoredFile(storedFileName, url, size);
     }
 
@@ -66,7 +89,7 @@ public class LocalFileStore : IFileStore
         }
 
         File.Delete(fullPath);
-        _logger.LogInformation("Deleted file {StoredFileName} at {Path}", safeName, fullPath);
+        _logger.LogInformation("Deleted file {StoredFileName}", safeName);
         return Task.CompletedTask;
     }
 }

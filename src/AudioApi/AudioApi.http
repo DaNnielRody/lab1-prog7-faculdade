@@ -1,6 +1,109 @@
-@AudioApi_HostAddress = http://localhost:5218
+### Audio Upload API — requisições de teste
+#
+# Uso:
+#   - VS Code: extensão "REST Client" (humao.rest-client) → clique em "Send Request".
+#   - Visual Studio / Rider: suporte nativo a arquivos .http.
+#
+# Antes de rodar:
+#   1. Suba a API:      dotnet run --project src/AudioApi     (http://localhost:5218)
+#      ou por Docker:   docker compose up --build             (http://localhost:8080)
+#      → nesse caso troque @host abaixo para o perfil docker.
+#   2. Gere um áudio de teste decodificável pelo ffmpeg:
+#      ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ar 44100 -ac 2 test.wav
+#      (o caminho de @audioFile abaixo assume esse arquivo na raiz do repositório)
 
-GET {{AudioApi_HostAddress}}/weatherforecast/
+@host = http://localhost:5218
+# @host = http://localhost:8080
+
+@audioFile = ../../test.wav
+
+# Preencha depois de rodar o upload (copie o "id" da resposta 201,
+# ou use a variável {{upload.response.body.id}} das requisições nomeadas abaixo).
+@audioId = 00000000-0000-0000-0000-000000000000
+
+
+### 1. Health check — a API está de pé?
+GET {{host}}/health
 Accept: application/json
 
-###
+
+### 2. Upload de áudio (201 Created | 400 inválido | 503 fila cheia)
+# @name upload
+POST {{host}}/api/audios
+Content-Type: multipart/form-data; boundary=AudioBoundary
+
+--AudioBoundary
+Content-Disposition: form-data; name="file"; filename="test.wav"
+Content-Type: audio/wav
+
+< {{audioFile}}
+--AudioBoundary--
+
+
+### 3. Metadados do áudio recém-enviado (usa o id da requisição 2)
+# Logo após o upload: processingStatus "Pending".
+# Alguns instantes depois: "Completed", storedFileName .m4a, contentType audio/mp4.
+GET {{host}}/api/audios/{{upload.response.body.id}}
+Accept: application/json
+
+
+### 4. Resumo do áudio (≤ 500 caracteres) + estado da sumarização
+# Pending → Processing → Completed | Failed.
+# Sem o worker Whisper ligado (dotnet run puro), o status é "Disabled".
+GET {{host}}/api/audios/{{upload.response.body.id}}/summary
+Accept: application/json
+
+
+### 5. Download dos bytes armazenados
+# Pending/Processing → arquivo original; Completed → o .m4a comprimido.
+GET {{host}}/api/audios/{{upload.response.body.id}}/download
+
+
+### 6. Listar todos os áudios (mais recentes primeiro)
+GET {{host}}/api/audios
+Accept: application/json
+
+
+### 7. Metadados por id fixo (cole um GUID em @audioId)
+GET {{host}}/api/audios/{{audioId}}
+Accept: application/json
+
+
+### 8. Resumo por id fixo
+GET {{host}}/api/audios/{{audioId}}/summary
+Accept: application/json
+
+
+### ─────────────── Casos de erro ───────────────
+
+### 9. 404 — id que não existe
+GET {{host}}/api/audios/11111111-1111-1111-1111-111111111111
+Accept: application/json
+
+
+### 10. 400 — arquivo que não é áudio (extensão .txt)
+POST {{host}}/api/audios
+Content-Type: multipart/form-data; boundary=AudioBoundary
+
+--AudioBoundary
+Content-Disposition: form-data; name="file"; filename="nao-e-audio.txt"
+Content-Type: text/plain
+
+isto nao e um audio
+--AudioBoundary--
+
+
+### 11. 400 — requisição sem o campo "file"
+POST {{host}}/api/audios
+Content-Type: multipart/form-data; boundary=AudioBoundary
+
+--AudioBoundary
+Content-Disposition: form-data; name="outro"
+
+sem o campo file
+--AudioBoundary--
+
+
+### 12. Contrato OpenAPI cru (Swagger UI: {{host}}/swagger)
+GET {{host}}/swagger/v1/swagger.json
+Accept: application/json

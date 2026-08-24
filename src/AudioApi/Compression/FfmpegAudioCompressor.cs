@@ -54,8 +54,20 @@ public class FfmpegAudioCompressor : IAudioCompressor
 
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-            var stderr = await stderrTask;
+            try
+            {
+                await process.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                throw;
+            }
+            await stderrTask;
             await stdoutTask;
 
             stopwatch.Stop();
@@ -63,9 +75,10 @@ public class FfmpegAudioCompressor : IAudioCompressor
             if (process.ExitCode != 0)
             {
                 _logger.LogError(
-                    "Falha ao comprimir áudio para AAC (ffmpeg saiu com código {ExitCode}) em {ElapsedMs}ms. Stderr: {Stderr}",
-                    process.ExitCode, stopwatch.ElapsedMilliseconds, stderr);
-                throw new InvalidOperationException($"ffmpeg falhou ao comprimir o áudio (código {process.ExitCode}).");
+                    "Falha ao comprimir áudio para AAC: ffmpeg saiu com código {ExitCode} em {ElapsedMs}ms.",
+                    process.ExitCode, stopwatch.ElapsedMilliseconds);
+                throw new AudioCompressionException(
+                    $"O ffmpeg não conseguiu decodificar ou comprimir o áudio (código {process.ExitCode}).");
             }
 
             var outputSizeBytes = new FileInfo(outputPath).Length;
@@ -83,21 +96,22 @@ public class FfmpegAudioCompressor : IAudioCompressor
 
             return new CompressedAudio(outputStream, ".m4a", "audio/mp4");
         }
-        catch
-        {
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-
-            throw;
-        }
         finally
         {
-            if (File.Exists(inputPath))
-            {
-                File.Delete(inputPath);
-            }
+            DeleteTemporaryFile(outputPath);
+            DeleteTemporaryFile(inputPath);
+        }
+    }
+
+    private void DeleteTemporaryFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Não foi possível remover arquivo temporário ({ExceptionType}).", ex.GetType().Name);
         }
     }
 }

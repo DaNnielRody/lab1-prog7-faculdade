@@ -26,7 +26,8 @@ public static class AudioEndpoints
             .DisableAntiforgery()
             .Accepts<IFormFile>("multipart/form-data")
             .Produces<AudioFileDto>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapGet("/", ListAsync)
             .WithName("ListAudios")
@@ -83,6 +84,17 @@ public static class AudioEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        if (!processingQueue.TryReserve(out var admission))
+        {
+            return Results.Problem(
+                title: "Processamento temporariamente indisponível",
+                detail: "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        using (admission)
+        {
+
         var id = Guid.NewGuid();
         var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
 
@@ -92,11 +104,13 @@ public static class AudioEndpoints
             originalExtension = ".bin";
         }
 
-        StoredFile stored;
-        await using (var stream = file.OpenReadStream())
+        StoredFile? stored = null;
+        try
         {
-            stored = await fileStore.SaveAsync(id, originalExtension, stream, baseUrl, ct);
-        }
+            await using (var stream = file.OpenReadStream())
+            {
+                stored = await fileStore.SaveAsync(id, originalExtension, stream, baseUrl, ct);
+            }
 
         var summarizationEnabled = summarizationOptions.Value.Enabled;
 
@@ -117,22 +131,33 @@ public static class AudioEndpoints
             SummaryUpdatedAtUtc = summarizationEnabled ? DateTime.UtcNow : null,
         };
 
-        db.AudioFiles.Add(entity);
-        await db.SaveChangesAsync(ct);
-
-        logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
-
-        if (!processingQueue.TryEnqueue(id))
-        {
-            const string reason = "A fila de processamento está cheia; tente enviar o áudio novamente mais tarde.";
-            logger.LogWarning("Fila de processamento cheia; o áudio {Id} não será comprimido.", id);
-
-            entity.MarkProcessingFailed(reason);
+            db.AudioFiles.Add(entity);
             await db.SaveChangesAsync(ct);
-        }
+            admission!.Enqueue(id);
 
-        var dto = AudioFileDto.FromEntity(entity);
-        return Results.Created($"/api/audios/{id}", dto);
+            logger.LogInformation("Áudio armazenado: {Id} ({FileName})", id, file.FileName);
+
+            var dto = AudioFileDto.FromEntity(entity);
+            return Results.Created($"/api/audios/{id}", dto);
+        }
+        catch
+        {
+            if (stored is not null)
+            {
+                try
+                {
+                    await fileStore.DeleteAsync(stored.StoredFileName, CancellationToken.None);
+                }
+                catch (Exception cleanupException) when (cleanupException is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogCritical(
+                        "Não foi possível compensar arquivo do upload {Id} ({ExceptionType}).",
+                        id, cleanupException.GetType().Name);
+                }
+            }
+            throw;
+        }
+        }
     }
 
     private static async Task<Ok<List<AudioFileDto>>> ListAsync(AppDbContext db, CancellationToken ct)

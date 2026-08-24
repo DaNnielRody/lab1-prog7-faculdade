@@ -14,7 +14,9 @@ public sealed class SummaryQueue : ISummaryQueue
 
         _channel = Channel.CreateBounded<Guid>(new BoundedChannelOptions(capacity)
         {
-            FullMode = BoundedChannelFullMode.DropWrite,
+            // Keep TryEnqueue truthful: unlike DropWrite, Wait makes TryWrite return false when
+            // the bounded buffer has no admission capacity.
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
         });

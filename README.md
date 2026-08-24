@@ -4,12 +4,25 @@ API em **ASP.NET Core (.NET 10)** que recebe arquivos de áudio, armazena os byt
 **File Store** e registra em um banco de dados o **UUID** do arquivo junto com a **URL**
 do file store e os demais metadados.
 
+## Entregáveis
+
+| Entregável | Onde |
+| --- | --- |
+| **Documento de arquitetura** — escopo, objetivos, caso de uso, componentes e diagramas | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| **Diagrama do pipeline do sistema** | [`docs/ARCHITECTURE.md` §5](docs/ARCHITECTURE.md#5-pipeline-do-sistema) |
+| **Servidor API** que processa e armazena áudio | [`src/AudioApi/`](src/AudioApi) |
+| **Cliente Web** que envia áudio para a API | [`web/`](web) |
+| **Documentação Swagger/OpenAPI** | `http://localhost:5218/swagger` (JSON em `/swagger/v1/swagger.json`) |
+| **Arquivo `.http`** para testar a API | [`src/AudioApi/AudioApi.http`](src/AudioApi/AudioApi.http) |
+| **Slides de apresentação** | [`docs/presentation.html`](docs/presentation.html) — abra no navegador |
+| **Instruções de configuração e execução** | este README, seções abaixo |
+
 ## O que o projeto faz
 
 - Recebe um arquivo de áudio via `multipart/form-data`.
 - Valida se o upload é realmente um áudio (por content-type `audio/*` **ou** por extensão).
-- Gera um `Guid` (UUID) para o arquivo, grava os bytes no file store e responde **201** —
-  **sem rodar `ffmpeg`**.
+- Gera um `Guid` (UUID) para o arquivo, grava os bytes no file store e responde **201** quando o
+  job é admitido — **sem rodar `ffmpeg`**. Fila saturada responde **503** sem persistir o upload.
 - Persiste um registro no banco com: `Id`, `OriginalFileName`, `StoredFileName`, `Url`,
   `ContentType`, `SizeBytes`, `CreatedAtUtc`, os campos de processamento (`ProcessingStatus`,
   `ProcessingError`, `ProcessingUpdatedAtUtc`) e os de resumo (`Summary`, `SummaryStatus`,
@@ -29,16 +42,17 @@ O `POST /api/audios` **não roda `ffmpeg`**. Ele valida, grava os bytes originai
 Duas filas limitadas (`Channel<Guid>`) e dois `BackgroundService` fazem o resto:
 
 ```
-POST → 201 (Pending)
+POST → 201 (Pending) | 503 (sem persistência por overload)
    └→ fila de compressão  → ffmpeg → .m4a substitui o original → Completed
         └→ fila de resumo → Whisper → Completed | Failed
 ```
 
-Cada fila tem o seu limite de concorrência (`SemaphoreSlim`), porque o recurso escasso é
-diferente: a compressão disputa os **núcleos locais** (padrão: `Environment.ProcessorCount`), a
-sumarização disputa a **VPS remota** de 4 vCPUs (padrão: 1). Como agora há dois workers gravando
-no mesmo SQLite — que aceita **um escritor por vez** — as escritas de background passam por um
-`DbWriteGate` (`SemaphoreSlim(1,1)`).
+A compressão consome sua fila com `Parallel.ForEachAsync`, limitado por
+`MaxDegreeOfParallelism = Processing:MaxConcurrency` (padrão:
+`Environment.ProcessorCount`). A sumarização continua usando `SemaphoreSlim`, porque disputa a
+**VPS remota** de 4 vCPUs (padrão: 1). Como os dois workers gravam no mesmo SQLite — que aceita
+**um escritor por vez** — as escritas de background passam por um `DbWriteGate`
+(`SemaphoreSlim(1,1)`).
 
 Todo áudio é transcodificado para **AAC** (container `.m4a`, 128 kbps por padrão) por
 `AudioApi.Compression.FfmpegAudioCompressor`, e o original é apagado assim que a linha do `.m4a`
@@ -49,6 +63,28 @@ Se o arquivo não puder ser decodificado, a API **não** responde 422: a requisi
 mais nada, então a falha aparece como `ProcessingStatus: "Failed"` + `ProcessingError` na linha,
 e o upload continua **201**. O `400` de validação (nome/content-type/tamanho) continua dentro da
 requisição, porque não decodifica nada.
+
+As filas bounded usam `FullMode=Wait` e uma reserva imediata de capacidade. Quando não há vaga,
+a API responde 503 antes de criar arquivo ou linha. Não se usa `DropWrite`, pois o runtime retorna
+`true` mesmo quando descarta o novo item. A reserva é feita antes do file store/SQLite e publicada
+ao consumidor somente depois do commit; falha de persistência libera a vaga e apaga apenas o
+arquivo do novo GUID. No shutdown o writer é
+fechado, novos produtores são rejeitados e jobs interrompidos voltam a `Pending`; no startup, o
+worker reenfileira `Pending`/`Processing` recuperáveis e terminaliza como `Failed` o que exceder a
+capacidade disponível.
+
+A política de exceções do worker é explícita:
+
+| Classe real | Política |
+| --- | --- |
+| `OperationCanceledException` com token do host cancelado | não é falha do áudio; volta a `Pending`, propaga o cancelamento e é recuperado no próximo start |
+| `AudioCompressionException` (ffmpeg terminou com código não zero) | falha permanente do item; marca somente o áudio como `Failed` e continua |
+| `FileNotFoundException` para o arquivo específico | falha conhecida do item; mensagem pública sem caminho e continuação dos próximos jobs |
+| demais `IOException`/`UnauthorizedAccessException`, `Win32Exception`, `DbUpdateException`/`SqliteException` e tipos não classificados | falha potencialmente sistêmica/bug; log `Critical` e exceção fatal sanitizados, com terminalização best-effort |
+
+Não há retry automático: áudio inválido é permanente, e o projeto não possui um critério seguro de
+idempotência/transitoriedade para filesystem ou SQLite. O comparativo progressivo e o CSV bruto
+estão em [`docs/week5-parallel-users-before-after.md`](docs/week5-parallel-users-before-after.md).
 
 Histórico do raciocínio: [`docs/week2-analysis.md`](docs/week2-analysis.md) (por que ainda não),
 [`docs/week3-threading-explanation.md`](docs/week3-threading-explanation.md) (o resumo sai da
@@ -102,7 +138,7 @@ Rodando pelo `dotnet run`, ela vem **desligada** (`Summarization:Enabled = false
 
 | Método | Rota                          | Descrição                                        |
 |--------|-------------------------------|--------------------------------------------------|
-| POST   | `/api/audios`                 | Envia um áudio (`multipart/form-data`, campo `file`). Retorna **201 Created** + `Location`. |
+| POST   | `/api/audios`                 | Envia um áudio. Retorna **201 + Location** se admitido ou **503** se a fila estiver saturada. |
 | GET    | `/api/audios/{id}`            | Retorna os metadados do registro (404 se não existir). |
 | GET    | `/api/audios/{id}/download`   | Faz o streaming dos bytes do arquivo — o original enquanto `ProcessingStatus` for `Pending`/`Processing`, o `.m4a` depois (404 se não existir). |
 | GET    | `/api/audios/{id}/summary`    | Retorna o resumo (≤ 500 caracteres) e o estado da sumarização (404 se não existir). |
@@ -171,6 +207,24 @@ A API sobe em **http://localhost:5218** (perfil `http`).
 
 Abra o **Swagger UI** em: **http://localhost:5218/swagger**
 (o upload de arquivo funciona direto pela interface).
+
+### Testando pelo arquivo `.http`
+
+[`src/AudioApi/AudioApi.http`](src/AudioApi/AudioApi.http) traz **12 requisições prontas** — health,
+upload real em `multipart`, metadados, resumo, download, listagem, os casos de erro (400/404) e o
+OpenAPI cru. As requisições encadeiam o id da resposta do upload (`{{upload.response.body.id}}`),
+então basta enviá-las em ordem.
+
+- **VS Code:** extensão [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) → "Send Request".
+- **Visual Studio / Rider:** suporte nativo, sem extensão.
+
+Antes de rodar, gere o áudio de teste que o arquivo referencia (na raiz do repositório):
+
+```bash
+ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ar 44100 -ac 2 test.wav
+```
+
+Para apontar para o Docker Compose, troque `@host` no topo do arquivo para `http://localhost:8080`.
 
 ### Exemplo: enviar um áudio
 
@@ -342,7 +396,7 @@ No Docker esses caminhos são `/app/filestore` e `/app/data`, mapeados para volu
   },
   "Processing": {
     "MaxConcurrency": 0,               // 0 (ou ausente) = número de processadores da máquina
-    "QueueCapacity": 100               // fila cheia → ProcessingStatus Failed, upload segue 201
+    "QueueCapacity": 100               // fila cheia → HTTP 503 sem persistir upload
   },
   "Summarization": {
     "Enabled": false,                  // true liga o resumo; false = nunca toca a rede
@@ -402,6 +456,7 @@ src/AudioApi/
   Summarization/AudioSummaryBackgroundService.cs
   Validation/AudioFileValidator.cs
   Endpoints/AudioEndpoints.cs
+  AudioApi.http                          # requisições prontas para testar a API
 tests/AudioApi.Tests/
   AudioFileValidatorTests.cs
   AudioApiIntegrationTests.cs
@@ -420,6 +475,8 @@ worker/audio-summary-worker/           # modelo local Whisper (Python + FastAPI)
   docker-compose.yml
   README.md
 docs/
+  ARCHITECTURE.md                        # escopo, objetivos, componentes e diagramas
+  presentation.html                      # slides (reveal.js, abrir no navegador)
   DESIGN.md
   week2-analysis.md
   week3-threading-explanation.md

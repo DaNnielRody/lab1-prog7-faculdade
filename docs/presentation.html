@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Upload API — Apresentação Técnica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+:root {
+  /* Tema claro com tom frio */
+  --bg-hero: #E7ECF6;
+  --bg-content: #F4F6FB;
+  --bg-card: #FFFFFF;
+  --card-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 14px rgba(15,23,42,0.06);
+  --border: rgba(15,23,42,0.10);
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-tertiary: #7C879B;
+  --orange: #EA580C;
+  --orange-dim: rgba(234,88,12,0.10);
+  --orange-border: rgba(234,88,12,0.28);
+  --blue: #2563EB;
+  --blue-dim: rgba(37,99,235,0.10);
+  --blue-border: rgba(37,99,235,0.28);
+  --green: #16A34A;
+  --green-dim: rgba(22,163,74,0.10);
+  --purple: #9333EA;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', sans-serif;
+}
+
+.reveal-viewport { background: var(--bg-hero); }
+
+.reveal {
+  font-family: var(--sans);
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.reveal .slides section {
+  text-align: left;
+  height: 100%;
+  padding: 0;
+  top: 0 !important;
+}
+
+h1,h2,h3,h4 {
+  font-family: var(--sans);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  margin: 0;
+  color: var(--text-primary);
+}
+h2 { font-size: 1.75em; }
+h3 { font-size: 1.05em; font-weight: 700; }
+h4 { font-size: 0.78em; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0; line-height: 1.6; }
+
+code, .mono {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  background: rgba(15,23,42,0.05);
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+/* ── LAYOUT ── */
+.slide-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 44px 52px 36px;
+  box-sizing: border-box;
+  gap: 32px;
+  background: var(--bg-content);
+  justify-content: center; /* Centraliza conteúdo verticalmente */
+}
+.slide-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center; /* Centraliza o cabeçalho do slide */
+  text-align: center;
+}
+.eyebrow {
+  font-size: 0.68em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.slide-body { 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center; 
+  align-items: center; /* Centraliza horizontalmente */
+  gap: 16px;
+  width: 100%;
+}
+
+/* ── CARD ── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: var(--card-shadow);
+}
+.card.orange { border-color: var(--orange-border); background: var(--orange-dim); }
+.card.blue   { border-color: var(--blue-border);   background: var(--blue-dim); }
+.card.green  { border-color: rgba(34,197,94,0.22);  background: var(--green-dim); }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; width: 100%; }
+.grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; width: 100%; }
+
+/* ── PILLS ── */
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-size: 0.74em;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  box-shadow: var(--card-shadow);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot-orange { background: var(--orange); box-shadow: 0 0 5px var(--orange); }
+.dot-blue   { background: var(--blue);   box-shadow: 0 0 5px var(--blue); }
+.dot-green  { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+.dot-purple { background: var(--purple); box-shadow: 0 0 5px var(--purple); }
+
+/* ── BADGE ── */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72em;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.badge-orange { background: var(--orange-dim); color: var(--orange); border: 1px solid var(--orange-border); }
+.badge-blue   { background: var(--blue-dim);   color: var(--blue);   border: 1px solid var(--blue-border); }
+.badge-green  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(34,197,94,0.22); }
+.badge-purple { background: rgba(168,85,247,0.10); color: var(--purple); border: 1px solid rgba(168,85,247,0.22); }
+
+/* ── STAT BOX ── */
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 14px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  box-shadow: var(--card-shadow);
+}
+.stat-num {
+  font-size: 1.9em;
+  font-weight: 900;
+  font-family: var(--mono);
+  line-height: 1;
+}
+.stat-label { font-size: 0.65em; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.stat-box.orange .stat-num { color: var(--orange); }
+.stat-box.blue   .stat-num { color: var(--blue); }
+.stat-box.green  .stat-num { color: var(--green); }
+.stat-box.purple .stat-num { color: var(--purple); }
+
+/* ── DIVIDER SLIDE ── */
+.slide-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 14px;
+  background: var(--bg-hero);
+  position: relative;
+  overflow: hidden;
+}
+.slide-divider::before {
+  content: '';
+  position: absolute;
+  width: 560px; height: 560px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(252,109,38,0.07) 0%, transparent 70%);
+  left: -140px; top: -140px; pointer-events: none;
+}
+.slide-divider::after {
+  content: '';
+  position: absolute;
+  width: 440px; height: 440px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(50,108,229,0.07) 0%, transparent 70%);
+  right: -100px; bottom: -100px; pointer-events: none;
+}
+.divider-number { font-family: var(--mono); font-size: 0.7em; color: var(--text-tertiary); letter-spacing: 0.12em; }
+.divider-line { width: 36px; height: 2px; background: linear-gradient(90deg, var(--orange), var(--blue)); border-radius: 2px; }
+.divider-title { font-size: 2.5em; font-weight: 800; letter-spacing: -0.03em; text-align: center; color: var(--text-primary); line-height: 1.1; }
+.divider-subtitle { font-size: 0.85em; color: var(--text-secondary); text-align: center; }
+
+/* ── COVER ── */
+.slide-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+  padding: 56px 64px;
+  box-sizing: border-box;
+  background: var(--bg-hero);
+  position: relative;
+  overflow: hidden;
+}
+.slide-cover::before {
+  content: '';
+  position: absolute;
+  width: 700px; height: 700px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(252,109,38,0.08) 0%, transparent 60%);
+  right: -220px; top: -220px; pointer-events: none;
+}
+.slide-cover::after {
+  content: '';
+  position: absolute;
+  width: 500px; height: 500px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(50,108,229,0.07) 0%, transparent 60%);
+  left: -120px; bottom: -120px; pointer-events: none;
+}
+.cover-label { font-size: 0.68em; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px; }
+.cover-title { font-size: 3.8em; font-weight: 900; letter-spacing: -0.04em; line-height: 1.0; margin-bottom: 8px; }
+.cover-sub { font-size: 0.95em; color: var(--text-secondary); font-weight: 400; margin-bottom: 36px; max-width: 560px; line-height: 1.65; }
+.cover-pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* ── STAGE JOB ── */
+.stage-job {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72em;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── PIPELINE ── */
+.pipeline-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+}
+.pipeline-stage.orange { border-top: 2px solid var(--orange); }
+.pipeline-stage.blue   { border-top: 2px solid var(--blue); }
+.pipeline-stage.green  { border-top: 2px solid var(--green); }
+.pipeline-stage.purple { border-top: 2px solid var(--purple); }
+.stage-label { font-size: 0.62em; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary); }
+.stage-name  { font-size: 0.84em; font-weight: 700; color: var(--text-primary); }
+.pipeline-arrow { display: flex; align-items: center; padding: 0 4px; color: var(--text-tertiary); flex-shrink: 0; }
+
+/* ── TECH GRID ── */
+.tech-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 16px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  box-shadow: var(--card-shadow);
+}
+.tech-item span { font-size: 0.7em; font-weight: 600; color: var(--text-secondary); }
+
+/* ── ARCH BOXES ── */
+.arch-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  flex: 1;
+  box-shadow: var(--card-shadow);
+}
+.arch-box.orange { border-color: var(--orange-border); }
+.arch-box.blue   { border-color: var(--blue-border); }
+.arch-label { font-size: 0.72em; font-weight: 700; color: var(--text-secondary); }
+.arch-sub   { font-size: 0.62em; color: var(--text-tertiary); font-family: var(--mono); }
+.arch-arrow-down { display: flex; justify-content: center; align-items: center; height: 14px; color: var(--text-tertiary); font-size: 0.8em; }
+
+/* ── FLOW ── */
+.flow-node {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.78em;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--card-shadow);
+}
+.flow-node.orange { border-color: var(--orange-border); color: var(--orange); }
+.flow-node.blue   { border-color: var(--blue-border);   color: var(--blue); }
+.flow-node.green  { border-color: rgba(34,197,94,0.22);  color: var(--green); }
+
+/* ── TABLE ── */
+.challenge-table { width: 100%; max-width: 1000px; border-collapse: collapse; font-size: 0.8em; margin: 0 auto; }
+.challenge-table th {
+  text-align: left; padding: 10px 14px;
+  font-size: 0.72em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-tertiary); border-bottom: 2px solid var(--border);
+}
+.challenge-table td {
+  padding: 14px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text-secondary); vertical-align: top; line-height: 1.5;
+}
+.challenge-table tr:last-child td { border-bottom: none; }
+.challenge-table td:first-child { color: var(--text-primary); font-weight: 600; }
+
+/* ── CHECKLIST ── */
+.checklist-item {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+  font-size: 0.8em;
+}
+.checklist-item:last-child { border-bottom: none; }
+.check-icon { color: var(--green); margin-top: 1px; flex-shrink: 0; font-size: 1.05em; }
+.check-text { color: var(--text-secondary); flex: 1; }
+.check-text strong { color: var(--text-primary); }
+
+/* ── TIMELINE ── */
+.timeline { display: flex; flex-direction: column; position: relative; }
+.timeline::before {
+  content: ''; position: absolute;
+  left: 19px; top: 22px; bottom: 22px;
+  width: 1px; background: linear-gradient(to bottom, var(--orange), var(--blue));
+}
+.timeline-item { display: flex; gap: 16px; padding: 8px 0; align-items: flex-start; }
+.timeline-dot {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-family: var(--mono); font-size: 0.7em; font-weight: 700;
+  position: relative; z-index: 1; background: var(--bg-content); border: 2px solid var(--border);
+}
+.timeline-dot.orange { border-color: var(--orange); color: var(--orange); }
+.timeline-dot.blue   { border-color: var(--blue);   color: var(--blue); }
+.timeline-dot.green  { border-color: var(--green);  color: var(--green); }
+.timeline-content { flex: 1; padding-top: 7px; }
+.timeline-title { font-size: 0.85em; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+.timeline-desc  { font-size: 0.72em; color: var(--text-secondary); }
+
+/* ── LICAO ── */
+.licao-card {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 14px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--card-shadow);
+}
+.licao-num { font-size: 1.1em; font-weight: 900; font-family: var(--mono); opacity: 0.14; flex-shrink: 0; line-height: 1; padding-top: 2px; }
+.licao-title { font-size: 0.8em; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+.licao-sub   { font-size: 0.7em;  color: var(--text-secondary); line-height: 1.45; }
+
+/* ── SECURITY ── */
+.sec-item {
+  display: flex; gap: 11px; align-items: flex-start;
+  padding: 10px 13px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--card-shadow);
+}
+.sec-icon { color: var(--blue); font-size: 1.05em; margin-top: 1px; flex-shrink: 0; }
+.sec-title { font-size: 0.78em; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+.sec-sub   { font-size: 0.7em;  color: var(--text-secondary); line-height: 1.4; }
+
+/* ── AGENDA ── */
+.agenda-list { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 600px; margin: 0 auto; }
+.agenda-item { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--card-shadow); }
+.agenda-num   { font-family: var(--mono); font-size: 0.8em; color: var(--text-tertiary); width: 30px; flex-shrink: 0; font-weight: 600; text-align: center; }
+.agenda-title { font-size: 0.95em; font-weight: 600; color: var(--text-primary); flex: 1; }
+.agenda-time  { font-family: var(--mono); font-size: 0.75em; color: var(--text-tertiary); background: rgba(15,23,42,0.04); border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; }
+
+/* ── CLOSING ── */
+.slide-closing {
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  height: 100%; padding: 52px; box-sizing: border-box;
+  background: var(--bg-hero); text-align: center; gap: 20px;
+  position: relative; overflow: hidden;
+}
+.slide-closing::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 25% 25%, rgba(252,109,38,0.08) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 75%, rgba(50,108,229,0.08) 0%, transparent 55%);
+  pointer-events: none;
+}
+.gradient-text {
+  background: linear-gradient(135deg, var(--orange), var(--blue));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+/* ── PROGRESS / CONTROLS ── */
+.reveal .progress { background: rgba(15,23,42,0.08); }
+.reveal .progress span { background: linear-gradient(90deg, var(--orange), var(--blue)); }
+.reveal .controls button { color: var(--text-tertiary); }
+.reveal .slide-number { font-family: var(--mono); color: var(--text-tertiary); background: transparent; font-size: 0.62em; }
+
+/* ── LOGO ICON ── */
+.logo-icon    { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+.logo-icon-sm { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
+.logo-icon-lg { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ═══ SLIDE 1 — CAPA ═══ -->
+<section>
+<div class="slide-cover">
+  <p class="cover-label">Atividade de meio de período · Programação 7 · Jala University</p>
+  <h1 class="cover-title">
+    <span style="color:var(--orange)">Audio</span> Upload API<br>
+    <span style="color:var(--text-secondary);font-size:0.32em;font-weight:500;letter-spacing:-0.01em">Do upload ao resumo, sem travar a requisição</span>
+  </h1>
+  <p class="cover-sub">
+    Servidor ASP.NET Core que recebe, armazena, comprime e resume arquivos de áudio em workers paralelos,
+    com cliente web Next.js, OpenAPI e IA local.
+  </p>
+  <div class="cover-pills">
+    <span class="stat-pill"><span class="dot dot-orange"></span>POST responde em ~0,2 s</span>
+    <span class="stat-pill"><span class="dot dot-blue"></span>2 filas · 2 workers</span>
+    <span class="stat-pill"><span class="dot dot-green"></span>43 testes verdes</span>
+    <span class="stat-pill"><span class="dot dot-purple"></span>Whisper local, offline</span>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 2 — AGENDA ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Roteiro</span>
+    <h2>Agenda</h2>
+  </div>
+  <div class="slide-body">
+    <div class="agenda-list">
+      <div class="agenda-item">
+        <span class="agenda-num">01</span>
+        <span class="dot dot-orange"></span>
+        <span class="agenda-title">Escopo, objetivos e caso de uso</span>
+        <span class="agenda-time">~4 min</span>
+      </div>
+      <div class="agenda-item">
+        <span class="agenda-num">02</span>
+        <span class="dot dot-orange"></span>
+        <span class="agenda-title">Arquitetura e componentes</span>
+        <span class="agenda-time">~5 min</span>
+      </div>
+      <div class="agenda-item">
+        <span class="agenda-num">03</span>
+        <span class="dot dot-blue"></span>
+        <span class="agenda-title">Pipeline do sistema e concorrência</span>
+        <span class="agenda-time">~5 min</span>
+      </div>
+      <div class="agenda-item">
+        <span class="agenda-num">04</span>
+        <span class="dot dot-blue"></span>
+        <span class="agenda-title">API, Swagger e cliente web</span>
+        <span class="agenda-time">~4 min</span>
+      </div>
+      <div class="agenda-item">
+        <span class="agenda-num">05</span>
+        <span class="dot dot-green"></span>
+        <span class="agenda-title">Resultados, decisões e demo</span>
+        <span class="agenda-time">~6 min</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 3 — DIVISOR 01 ═══ -->
+<section>
+<div class="slide-divider">
+  <span class="divider-number">PARTE 01 / 05</span>
+  <div class="divider-line"></div>
+  <h2 class="divider-title">Escopo<br>&amp; Objetivos</h2>
+  <p class="divider-subtitle">o problema · o que está dentro · o que ficou fora · o caso de uso</p>
+</div>
+</section>
+
+<!-- ═══ SLIDE 4 — O PROBLEMA ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Escopo do problema</span>
+    <h2>Áudio enviado por usuário é caro, opaco e lento</h2>
+  </div>
+  <div class="slide-body" style="gap:16px">
+    <div class="grid-3" style="flex:0">
+      <div class="card orange" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ph ph-hard-drives" style="color:var(--orange);font-size:1.5em"></i>
+          <h3>É grande</h3>
+        </div>
+        <p style="font-size:0.76em;color:var(--text-secondary)">
+          Um WAV de 5 minutos passa de <strong>40 MB</strong>. Guardar o formato bruto multiplica
+          custo de disco e de banda em toda leitura posterior.
+        </p>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ph ph-eye-slash" style="color:var(--blue);font-size:1.5em"></i>
+          <h3>É opaco</h3>
+        </div>
+        <p style="font-size:0.76em;color:var(--text-secondary)">
+          Áudio não é pesquisável nem escaneável. Para saber o que há dentro,
+          <strong>alguém precisa ouvir do começo ao fim</strong>.
+        </p>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;border-color:rgba(168,85,247,0.22);background:rgba(168,85,247,0.06)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ph ph-hourglass-high" style="color:var(--purple);font-size:1.5em"></i>
+          <h3>É lento de processar</h3>
+        </div>
+        <p style="font-size:0.76em;color:var(--text-secondary)">
+          Transcodificar e transcrever custa <strong>segundos a minutos</strong> por arquivo —
+          muito mais do que uma requisição HTTP deveria durar.
+        </p>
+      </div>
+    </div>
+    <div class="card" style="padding:14px 18px;display:flex;align-items:center;gap:11px;max-width:1000px">
+      <i class="ph ph-warning-circle" style="color:var(--orange);font-size:1.3em;flex-shrink:0"></i>
+      <span style="font-size:0.8em;color:var(--text-secondary)">
+        <strong>O erro comum é resolver os três dentro do <code>POST</code>:</strong> o cliente fica pendurado
+        esperando <code>ffmpeg</code> e o modelo, o timeout estoura, e um pico de uploads simultâneos derruba o servidor.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 5 — DENTRO / FORA DO ESCOPO ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Delimitação</span>
+    <h2>O que está dentro — e o que ficou fora de propósito</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card green" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--green)">Dentro do escopo</h4>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>Recepção e validação</strong> de áudio via <code>multipart/form-data</code></span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>UUID + URL + metadados</strong> persistidos, bytes no file store</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>Compressão para AAC</strong> em worker paralelo</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>Resumo ≤ 500 caracteres</strong> com IA local</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>Cliente web</strong> que envia e acompanha o resultado</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text"><strong>Swagger + arquivo <code>.http</code></strong> como contrato executável</span></div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:4px">
+        <h4>Fora do escopo — e por quê</h4>
+        <div class="checklist-item"><i class="ph ph-x-circle check-icon" style="color:var(--text-tertiary)"></i><span class="check-text"><strong>Autenticação / multi-tenancy</strong> — o foco é o pipeline de mídia</span></div>
+        <div class="checklist-item"><i class="ph ph-x-circle check-icon" style="color:var(--text-tertiary)"></i><span class="check-text"><strong>S3 / Azure Blob</strong> — <code>IFileStore</code> já isola; o local basta</span></div>
+        <div class="checklist-item"><i class="ph ph-x-circle check-icon" style="color:var(--text-tertiary)"></i><span class="check-text"><strong>Transcrição paga</strong> — o requisito é modelo leve e local</span></div>
+        <div class="checklist-item"><i class="ph ph-x-circle check-icon" style="color:var(--text-tertiary)"></i><span class="check-text"><strong>Retry automático</strong> — áudio inválido é falha permanente</span></div>
+        <div class="checklist-item"><i class="ph ph-x-circle check-icon" style="color:var(--text-tertiary)"></i><span class="check-text"><strong>Migrations</strong> — <code>EnsureCreated()</code>, domínio estável</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 6 — OBJETIVOS ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Objetivos</span>
+    <h2>Metas funcionais e não funcionais</h2>
+  </div>
+  <div class="slide-body" style="gap:16px">
+    <div class="grid-4" style="flex:0">
+      <div class="stat-box orange"><span class="stat-num">~0,2s</span><span class="stat-label">Resposta do POST</span></div>
+      <div class="stat-box blue"><span class="stat-num">14x</span><span class="stat-label">Mais rápido que antes</span></div>
+      <div class="stat-box green"><span class="stat-num">500</span><span class="stat-label">Chars máx. no resumo</span></div>
+      <div class="stat-box purple"><span class="stat-num">503</span><span class="stat-label">Degradação limpa</span></div>
+    </div>
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card orange" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--orange)">Funcionais</h4>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F1</strong>&nbsp;Receber áudio e rejeitar o que não é áudio</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F2</strong>&nbsp;UUID por arquivo + URL + metadados no banco</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F3</strong>&nbsp;Comprimir para AAC sem bloquear a requisição</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F4</strong>&nbsp;Resumir com IA local em ≤ 500 caracteres</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F5</strong>&nbsp;Consultar metadados, resumo, download e lista</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>F6</strong>&nbsp;Cliente web com upload e resultado na mesma tela</div>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--blue)">Não funcionais</h4>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N1</strong>&nbsp;O POST responde antes de qualquer trabalho pesado</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N2</strong>&nbsp;Sob carga, degrada com 503 — não cai</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N3</strong>&nbsp;Compressão usa todos os núcleos disponíveis</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N4</strong>&nbsp;Escritas concorrentes nunca corrompem o banco</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N5</strong>&nbsp;Shutdown não perde trabalho — recupera no start</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>N6</strong>&nbsp;API documentada e testável sem cliente</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 7 — CASO DE USO ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Caso de uso</span>
+    <h2>"Enviar um áudio e saber o que tem dentro"</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <div class="card" style="padding:11px 16px;display:flex;align-items:center;gap:10px;max-width:1000px">
+      <i class="ph ph-user" style="color:var(--orange);font-size:1.2em;flex-shrink:0"></i>
+      <span style="font-size:0.8em;color:var(--text-secondary)">
+        <strong>Ator:</strong> pessoa com uma gravação em mãos que quer saber o conteúdo sem ouvir tudo.
+      </span>
+    </div>
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card green" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--green)">Fluxo principal</h4>
+        <div class="stage-job"><span class="badge badge-green">1</span>&nbsp;Arrasta o arquivo no cliente web (<code>:3000</code>)</div>
+        <div class="stage-job"><span class="badge badge-green">2</span>&nbsp;Front faz <code>POST /api/audios</code></div>
+        <div class="stage-job"><span class="badge badge-green">3</span>&nbsp;API valida, reserva vaga, grava e responde <strong>201</strong></div>
+        <div class="stage-job"><span class="badge badge-green">4</span>&nbsp;Tela já mostra a mensagem "processando"</div>
+        <div class="stage-job"><span class="badge badge-green">5</span>&nbsp;Workers comprimem e resumem em background</div>
+        <div class="stage-job"><span class="badge badge-green">6</span>&nbsp;Polling troca a mensagem pelo resumo</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:4px">
+        <h4>Fluxos alternativos</h4>
+        <div class="stage-job"><span class="badge badge-orange">400</span>&nbsp;Não é áudio (nome / content-type / tamanho)</div>
+        <div class="stage-job"><span class="badge badge-orange">503</span>&nbsp;Filas saturadas — <strong>nada é persistido</strong></div>
+        <div class="stage-job"><span class="badge badge-blue">201</span>&nbsp;Passa na validação mas o <code>ffmpeg</code> não decodifica → <code>Failed</code> depois</div>
+        <div class="stage-job"><span class="badge badge-blue">201</span>&nbsp;Worker de resumo fora do ar → áudio segue armazenado, tela diz o motivo</div>
+        <div class="stage-job"><span class="badge badge-purple">↻</span>&nbsp;Processo cai no meio → job volta a <code>Pending</code> e é reenfileirado</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 8 — DIVISOR 02 ═══ -->
+<section>
+<div class="slide-divider">
+  <span class="divider-number">PARTE 02 / 05</span>
+  <div class="divider-line"></div>
+  <h2 class="divider-title">Arquitetura<br>&amp; Componentes</h2>
+  <p class="divider-subtitle">cliente web · servidor API · workers · worker de IA local</p>
+</div>
+</section>
+
+<!-- ═══ SLIDE 9 — VISÃO GERAL ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Arquitetura</span>
+    <h2>Visão geral — quatro peças, um contrato HTTP</h2>
+  </div>
+  <div class="slide-body" style="gap:12px">
+    <div class="grid-4" style="flex:0;align-items:stretch">
+      <div class="card orange" style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <i class="ph ph-browser" style="color:var(--orange);font-size:1.35em"></i>
+          <div><h3>Cliente Web</h3><span style="font-size:0.66em;color:var(--text-tertiary);font-family:var(--mono)">Next.js 16 · TS</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Upload por dropzone</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Tela de conversa</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Polling até terminal</div>
+        </div>
+        <span class="badge badge-orange" style="align-self:flex-start">:3000</span>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <i class="ph ph-plugs-connected" style="color:var(--blue);font-size:1.35em"></i>
+          <div><h3>Servidor API</h3><span style="font-size:0.66em;color:var(--text-tertiary);font-family:var(--mono)">ASP.NET Core · .NET 10</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Minimal APIs</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Validação + admissão</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Swagger / ProblemDetails</div>
+        </div>
+        <span class="badge badge-blue" style="align-self:flex-start">:5218 / :8080</span>
+      </div>
+      <div class="card green" style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <i class="ph ph-gear-six" style="color:var(--green);font-size:1.35em"></i>
+          <div><h3>Workers</h3><span style="font-size:0.66em;color:var(--text-tertiary);font-family:var(--mono)">BackgroundService</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Compressão (ffmpeg)</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Resumo (Whisper)</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>2 filas bounded</div>
+        </div>
+        <span class="badge badge-green" style="align-self:flex-start">in-process</span>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:9px;border-color:rgba(168,85,247,0.22);background:rgba(168,85,247,0.06)">
+        <div style="display:flex;align-items:center;gap:9px">
+          <i class="ph ph-brain" style="color:var(--purple);font-size:1.35em"></i>
+          <div><h3>Worker IA</h3><span style="font-size:0.66em;color:var(--text-tertiary);font-family:var(--mono)">Python · FastAPI</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>faster-whisper <code>tiny</code></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>int8 · CPU · offline</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Sem API paga</div>
+        </div>
+        <span class="badge badge-purple" style="align-self:flex-start">rede interna</span>
+      </div>
+    </div>
+    <div class="grid-2" style="flex:0">
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-database" style="color:var(--blue);font-size:1.1em;flex-shrink:0"></i>
+        <span style="font-size:0.74em;color:var(--text-secondary)"><strong>Persistência:</strong> EF Core + SQLite (metadados) e <code>IFileStore</code> (bytes) — trocável por S3 sem tocar nos endpoints</span>
+      </div>
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-shield-check" style="color:var(--orange);font-size:1.1em;flex-shrink:0"></i>
+        <span style="font-size:0.74em;color:var(--text-secondary)"><strong>Contrato:</strong> CORS por configuração, erros em <code>ProblemDetails</code> (RFC 7807), <code>/health</code></span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 10 — DIAGRAMA DE COMPONENTES ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Arquitetura</span>
+    <h2>Diagrama de componentes</h2>
+  </div>
+  <div class="slide-body" style="gap:10px;max-width:1050px">
+    <div class="card orange" style="width:100%;padding:12px 16px">
+      <h4 style="color:var(--orange);margin-bottom:8px">Cliente Web — Next.js · :3000</h4>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="arch-box orange"><span class="arch-label">Tela de conversa</span><span class="arch-sub">upload · estados</span></div>
+        <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+        <div class="arch-box orange"><span class="arch-label">useTranscription</span><span class="arch-sub">polling</span></div>
+        <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+        <div class="arch-box orange"><span class="arch-label">lib/api.ts</span><span class="arch-sub">fetch</span></div>
+      </div>
+    </div>
+    <div class="arch-arrow-down"><i class="ph ph-arrow-down"></i>&nbsp;<span style="font-size:0.7em;font-family:var(--mono)">HTTP / JSON · CORS</span></div>
+    <div class="card blue" style="width:100%;padding:12px 16px">
+      <h4 style="color:var(--blue);margin-bottom:8px">Servidor API — ASP.NET Core · :5218 / :8080</h4>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div class="arch-box blue"><span class="arch-label">AudioEndpoints</span><span class="arch-sub">Minimal APIs</span></div>
+        <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+        <div class="arch-box blue"><span class="arch-label">AudioFileValidator</span><span class="arch-sub">nome · tipo · tamanho</span></div>
+        <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+        <div class="arch-box blue"><span class="arch-label">ProcessingQueue</span><span class="arch-sub">Channel bounded</span></div>
+        <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+        <div class="arch-box blue"><span class="arch-label">SummaryQueue</span><span class="arch-sub">Channel bounded</span></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="arch-box"><span class="arch-label">AudioProcessing<br>BackgroundService</span><span class="arch-sub">Parallel.ForEachAsync</span></div>
+        <div class="arch-box"><span class="arch-label">AudioSummary<br>BackgroundService</span><span class="arch-sub">SemaphoreSlim</span></div>
+        <div class="arch-box"><span class="arch-label">DbWriteGate</span><span class="arch-sub">SemaphoreSlim(1,1)</span></div>
+        <div class="arch-box"><span class="arch-label">IFileStore</span><span class="arch-sub">LocalFileStore</span></div>
+        <div class="arch-box"><span class="arch-label">AppDbContext</span><span class="arch-sub">EF Core · SQLite</span></div>
+      </div>
+    </div>
+    <div class="arch-arrow-down"><i class="ph ph-arrow-down"></i></div>
+    <div class="grid-2" style="flex:0">
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-film-strip" style="color:var(--green);font-size:1.1em"></i>
+        <span style="font-size:0.75em;color:var(--text-secondary)"><strong>ffmpeg</strong> — transcodificação para AAC (processo externo)</span>
+      </div>
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-brain" style="color:var(--purple);font-size:1.1em"></i>
+        <span style="font-size:0.75em;color:var(--text-secondary)"><strong>Worker Whisper</strong> — HTTP na rede interna do compose</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 11 — STACK ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Tecnologia</span>
+    <h2>Stack</h2>
+  </div>
+  <div class="slide-body" style="gap:16px">
+    <div class="grid-4" style="flex:0">
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/dotnet/512BD4" alt=".NET"><span>ASP.NET Core · .NET 10</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/nextdotjs/000000" alt="Next.js"><span>Next.js 16 · App Router</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/typescript/3178C6" alt="TypeScript"><span>TypeScript</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/tailwindcss/06B6D4" alt="Tailwind"><span>Tailwind v4</span></div>
+    </div>
+    <div class="grid-4" style="flex:0">
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/sqlite/003B57" alt="SQLite"><span>EF Core + SQLite</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/ffmpeg/007808" alt="ffmpeg"><span>ffmpeg · AAC 128 kbps</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/python/3776AB" alt="Python"><span>Python · FastAPI</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/openai/412991" alt="Whisper"><span>faster-whisper <code>tiny</code></span></div>
+    </div>
+    <div class="grid-4" style="flex:0">
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/docker/2496ED" alt="Docker"><span>Docker Compose</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/swagger/85EA2D" alt="Swagger"><span>Swagger / OpenAPI</span></div>
+      <div class="tech-item"><i class="ph ph-test-tube" style="font-size:1.6em;color:var(--green)"></i><span>xUnit · 43 testes</span></div>
+      <div class="tech-item"><img class="logo-icon-lg" src="https://cdn.simpleicons.org/vitest/6E9F18" alt="Vitest"><span>Vitest + RTL</span></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 12 — DIVISOR 03 ═══ -->
+<section>
+<div class="slide-divider">
+  <span class="divider-number">PARTE 03 / 05</span>
+  <div class="divider-line"></div>
+  <h2 class="divider-title">Pipeline<br>do Sistema</h2>
+  <p class="divider-subtitle">admissão · compressão · resumo · concorrência e falhas</p>
+</div>
+</section>
+
+<!-- ═══ SLIDE 13 — PIPELINE ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Pipeline</span>
+    <h2>Do upload ao resumo — cinco estágios</h2>
+  </div>
+  <div class="slide-body" style="gap:16px">
+    <div style="display:flex;align-items:stretch;width:100%">
+      <div class="pipeline-stage orange">
+        <span class="stage-label">Estágio 01</span>
+        <span class="stage-name">Recepção</span>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>multipart/form-data</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>valida nome, tipo, tamanho</div>
+        <div class="stage-job"><i class="ph ph-x-circle" style="color:var(--orange)"></i>inválido → <strong>400</strong></div>
+      </div>
+      <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+      <div class="pipeline-stage orange">
+        <span class="stage-label">Estágio 02</span>
+        <span class="stage-name">Admissão</span>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>reserva vaga na fila</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>grava bytes + linha</div>
+        <div class="stage-job"><i class="ph ph-x-circle" style="color:var(--orange)"></i>sem vaga → <strong>503</strong></div>
+      </div>
+      <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+      <div class="pipeline-stage blue">
+        <span class="stage-label">Estágio 03</span>
+        <span class="stage-name">Resposta</span>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>201 Created</strong> + Location</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>UUID, URL, <code>Pending</code></div>
+        <div class="stage-job"><i class="ph ph-timer" style="color:var(--blue)"></i>~0,2 s para 42 MB</div>
+      </div>
+      <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+      <div class="pipeline-stage green">
+        <span class="stage-label">Estágio 04</span>
+        <span class="stage-name">Compressão</span>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>ffmpeg → AAC <code>.m4a</code></div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>apaga o original</div>
+        <div class="stage-job"><i class="ph ph-cpu" style="color:var(--green)"></i>N núcleos em paralelo</div>
+      </div>
+      <div class="pipeline-arrow"><i class="ph ph-arrow-right"></i></div>
+      <div class="pipeline-stage purple">
+        <span class="stage-label">Estágio 05</span>
+        <span class="stage-name">Resumo</span>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Whisper <code>tiny</code> local</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>≤ 500 caracteres</div>
+        <div class="stage-job"><i class="ph ph-arrows-clockwise" style="color:var(--purple)"></i>front faz polling</div>
+      </div>
+    </div>
+    <div class="grid-2" style="flex:0">
+      <div class="card blue" style="padding:12px 16px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-lightning" style="color:var(--blue);font-size:1.2em;flex-shrink:0"></i>
+        <span style="font-size:0.76em;color:var(--text-secondary)"><strong>Estágios 01–03 são a requisição HTTP</strong> e terminam em ~0,2 s</span>
+      </div>
+      <div class="card green" style="padding:12px 16px;display:flex;align-items:center;gap:9px">
+        <i class="ph ph-arrows-split" style="color:var(--green);font-size:1.2em;flex-shrink:0"></i>
+        <span style="font-size:0.76em;color:var(--text-secondary)"><strong>Estágios 04–05 são background</strong> — nada de ffmpeg ou IA dentro do POST</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 14 — FLUXO / SEQUÊNCIA ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Pipeline</span>
+    <h2>Caminho da requisição × caminho do trabalho</h2>
+  </div>
+  <div class="slide-body" style="gap:18px;max-width:1040px">
+    <div class="card blue" style="width:100%;padding:14px 18px">
+      <h4 style="color:var(--blue);margin-bottom:10px">Síncrono — dentro da requisição</h4>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="flow-node orange"><i class="ph ph-upload-simple"></i>POST /api/audios</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node blue"><i class="ph ph-check-square"></i>Validar</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node blue"><i class="ph ph-ticket"></i>Reservar vaga</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node blue"><i class="ph ph-floppy-disk"></i>File store</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node blue"><i class="ph ph-database"></i>INSERT</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node green"><i class="ph ph-check-circle"></i>201 Created</span>
+      </div>
+    </div>
+    <div class="card green" style="width:100%;padding:14px 18px">
+      <h4 style="color:var(--green);margin-bottom:10px">Assíncrono — em background, depois da resposta</h4>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="flow-node"><i class="ph ph-queue"></i>Fila de compressão</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node green"><i class="ph ph-film-strip"></i>ffmpeg → .m4a</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node green"><i class="ph ph-trash"></i>Apaga original</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node"><i class="ph ph-queue"></i>Fila de resumo</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node green"><i class="ph ph-brain"></i>Whisper</span>
+        <i class="ph ph-arrow-right" style="color:var(--text-tertiary)"></i>
+        <span class="flow-node green"><i class="ph ph-text-aa"></i>Resumo ≤ 500</span>
+      </div>
+    </div>
+    <div class="card orange" style="width:100%;padding:12px 18px;display:flex;align-items:center;gap:10px">
+      <i class="ph ph-arrows-clockwise" style="color:var(--orange);font-size:1.2em;flex-shrink:0"></i>
+      <span style="font-size:0.78em;color:var(--text-secondary)">
+        <strong>Ponte entre os dois:</strong> <code>GET /api/audios/{id}/summary</code> em polling —
+        <code>Pending</code> → <code>Processing</code> → <code>Completed</code> | <code>Failed</code>.
+        O polling para sozinho quando todos os áudios chegam a um estado final.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 15 — CONCORRÊNCIA ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Pipeline</span>
+    <h2>Modelo de concorrência — uma primitiva por gargalo</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <table class="challenge-table">
+      <thead>
+        <tr><th>Etapa</th><th>Primitiva</th><th>Grau</th><th>Por quê</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Admissão</td>
+          <td><code>Channel&lt;Guid&gt;</code> bounded + reserva</td>
+          <td><span class="badge badge-orange">100</span></td>
+          <td>Backpressure explícito: sem vaga, responde 503 <strong>antes</strong> de escrever qualquer coisa</td>
+        </tr>
+        <tr>
+          <td>Compressão</td>
+          <td><code>Parallel.ForEachAsync</code></td>
+          <td><span class="badge badge-green">ProcessorCount</span></td>
+          <td>CPU-bound — escala com os núcleos da máquina</td>
+        </tr>
+        <tr>
+          <td>Resumo</td>
+          <td><code>SemaphoreSlim</code></td>
+          <td><span class="badge badge-blue">1</span></td>
+          <td>I/O contra uma VPS de 4 vCPUs; mais paralelismo só atrasa todo mundo</td>
+        </tr>
+        <tr>
+          <td>Escrita no banco</td>
+          <td><code>DbWriteGate</code> — <code>SemaphoreSlim(1,1)</code></td>
+          <td><span class="badge badge-purple">1</span></td>
+          <td>SQLite aceita <strong>um escritor por vez</strong>, e dois workers escrevem no mesmo arquivo</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card orange" style="padding:12px 18px;display:flex;align-items:center;gap:10px;max-width:1000px">
+      <i class="ph ph-warning" style="color:var(--orange);font-size:1.2em;flex-shrink:0"></i>
+      <span style="font-size:0.76em;color:var(--text-secondary)">
+        <strong>Por que não <code>DropWrite</code>:</strong> o runtime retorna <code>true</code> mesmo quando descarta o item novo —
+        uma mentira silenciosa. A reserva prévia é o que garante que um 503 não deixe arquivo nem linha órfãos.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 16 — FALHAS ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Pipeline</span>
+    <h2>Política de falhas — cada exceção tem um dono</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <table class="challenge-table">
+      <thead><tr><th>Classe real</th><th>Política</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>OperationCanceledException</code><br><span style="font-weight:400;font-size:0.9em;color:var(--text-tertiary)">token do host cancelado</span></td>
+          <td>Não é falha do áudio: volta a <code>Pending</code>, propaga o cancelamento e é <strong>recuperado no próximo start</strong></td>
+        </tr>
+        <tr>
+          <td><code>AudioCompressionException</code><br><span style="font-weight:400;font-size:0.9em;color:var(--text-tertiary)">ffmpeg terminou ≠ 0</span></td>
+          <td>Falha <strong>permanente do item</strong>: marca só aquele áudio como <code>Failed</code> e segue para os próximos</td>
+        </tr>
+        <tr>
+          <td><code>FileNotFoundException</code><br><span style="font-weight:400;font-size:0.9em;color:var(--text-tertiary)">do arquivo específico</span></td>
+          <td>Falha conhecida do item: mensagem pública <strong>sem caminho</strong> e continuação da fila</td>
+        </tr>
+        <tr>
+          <td>Demais <code>IOException</code>, <code>Win32Exception</code>,<br><code>DbUpdateException</code>, não classificados</td>
+          <td>Potencialmente <strong>sistêmico</strong>: log <code>Critical</code>, exceção fatal sanitizada, terminalização best-effort</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card blue" style="padding:12px 18px;display:flex;align-items:center;gap:10px;max-width:1000px">
+      <i class="ph ph-info" style="color:var(--blue);font-size:1.2em;flex-shrink:0"></i>
+      <span style="font-size:0.76em;color:var(--text-secondary)">
+        <strong>Sem retry automático — de propósito.</strong> Áudio inválido é falha permanente, e o projeto não tem
+        critério seguro de idempotência para filesystem ou SQLite. Retry cego só multiplicaria o mesmo erro.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 17 — DIVISOR 04 ═══ -->
+<section>
+<div class="slide-divider">
+  <span class="divider-number">PARTE 04 / 05</span>
+  <div class="divider-line"></div>
+  <h2 class="divider-title">API, Swagger<br>&amp; Cliente Web</h2>
+  <p class="divider-subtitle">contrato executável · documentação · a tela</p>
+</div>
+</section>
+
+<!-- ═══ SLIDE 18 — ENDPOINTS ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">API</span>
+    <h2>Contrato — seis endpoints</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <table class="challenge-table">
+      <thead><tr><th>Rota</th><th>Sucesso</th><th>Erros</th><th>O que faz</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-orange">POST</span> <code>/api/audios</code></td>
+          <td><span class="badge badge-green">201</span></td>
+          <td><span class="badge badge-orange">400</span> <span class="badge badge-orange">503</span></td>
+          <td>Envia o áudio; responde com UUID, URL e <code>Location</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">GET</span> <code>/api/audios</code></td>
+          <td><span class="badge badge-green">200</span></td>
+          <td>—</td>
+          <td>Lista todos, mais recentes primeiro</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">GET</span> <code>/api/audios/{id}</code></td>
+          <td><span class="badge badge-green">200</span></td>
+          <td><span class="badge badge-orange">404</span></td>
+          <td>Metadados + <code>processingStatus</code> + <code>summaryStatus</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">GET</span> <code>/api/audios/{id}/download</code></td>
+          <td><span class="badge badge-green">200</span></td>
+          <td><span class="badge badge-orange">404</span></td>
+          <td>Stream: original enquanto processa, <code>.m4a</code> depois</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">GET</span> <code>/api/audios/{id}/summary</code></td>
+          <td><span class="badge badge-green">200</span></td>
+          <td><span class="badge badge-orange">404</span></td>
+          <td>Resumo ≤ 500 caracteres e estado da sumarização</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">GET</span> <code>/health</code></td>
+          <td><span class="badge badge-green">200</span></td>
+          <td>—</td>
+          <td>Verificação de saúde</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card" style="padding:11px 16px;display:flex;align-items:center;gap:9px;max-width:1000px">
+      <i class="ph ph-warning-octagon" style="color:var(--blue);font-size:1.1em;flex-shrink:0"></i>
+      <span style="font-size:0.76em;color:var(--text-secondary)">Todos os erros saem em <strong><code>ProblemDetails</code></strong> (RFC 7807) — mesmo formato para o cliente tratar</span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 19 — SWAGGER + .HTTP ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Documentação</span>
+    <h2>O contrato em dois formatos executáveis</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card green" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <img class="logo-icon-lg" src="https://cdn.simpleicons.org/swagger/85EA2D" alt="Swagger">
+          <div><h3>Swagger / OpenAPI</h3><span style="font-size:0.68em;color:var(--text-tertiary);font-family:var(--mono)">SwaggerGen · Development</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>UI em <code>/swagger</code> — upload de arquivo direto pela tela</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Cada endpoint com <code>WithSummary</code> e códigos declarados</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Schemas de <code>AudioFileDto</code> e <code>AudioSummaryDto</code></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>JSON cru em <code>/swagger/v1/swagger.json</code></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><code>/</code> redireciona para o Swagger</div>
+        </div>
+        <span class="badge badge-green" style="align-self:flex-start">localhost:5218/swagger</span>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i class="ph ph-file-code" style="color:var(--blue);font-size:1.6em"></i>
+          <div><h3>Arquivo <code>.http</code></h3><span style="font-size:0.68em;color:var(--text-tertiary);font-family:var(--mono)">src/AudioApi/AudioApi.http</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>12 requisições</strong> prontas, do health ao OpenAPI cru</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Upload real em <code>multipart</code> com arquivo do disco</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Encadeamento: <code>{{upload.response.body.id}}</code></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Casos de erro inclusos: 400, 404, arquivo ausente</div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Alterna entre <code>:5218</code> e <code>:8080</code> por variável</div>
+        </div>
+        <span class="badge badge-blue" style="align-self:flex-start">REST Client · VS · Rider</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 20 — CLIENTE WEB ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Cliente Web</span>
+    <h2>A tela é uma conversa</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card orange" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--orange)">Comportamento</h4>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Cada áudio processado vira <strong>uma mensagem com o seu resumo</strong></div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>As <strong>10 mais recentes</strong> abrem a conversa, antes da sessão atual</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Sem resumo ainda? A mensagem <strong>diz o motivo</strong> — comprimindo, falhou, aguardando ou desativado</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>Nenhum estado renderiza corpo vazio</strong></div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Polling roda só com áudio não-terminal e <strong>para sozinho</strong></div>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--blue)">Construção</h4>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Next.js App Router + TypeScript + Tailwind v4</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Visual especificado em <code>docs/DESIGN.md</code>, com Figma de referência</div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i><strong>Todo valor visual resolve para um token</strong> declarado em <code>globals.css</code></div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Base da API por <code>NEXT_PUBLIC_API_BASE_URL</code></div>
+        <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>Vitest + RTL: estados de tela, histórico, primitivas e tokens</div>
+      </div>
+    </div>
+    <div class="card" style="padding:11px 16px;display:flex;align-items:center;gap:9px;max-width:1000px">
+      <i class="ph ph-plugs" style="color:var(--orange);font-size:1.1em;flex-shrink:0"></i>
+      <span style="font-size:0.76em;color:var(--text-secondary)">
+        <strong>Com o Docker Compose, aponte o front para a 8080</strong> — o padrão é <code>:5218</code> (do <code>dotnet run</code>).
+        <code>echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8080' &gt; web/.env.local</code> e reinicie o dev server.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 21 — DIVISOR 05 ═══ -->
+<section>
+<div class="slide-divider">
+  <span class="divider-number">PARTE 05 / 05</span>
+  <div class="divider-line"></div>
+  <h2 class="divider-title">Resultados,<br>Decisões &amp; Demo</h2>
+  <p class="divider-subtitle">medições · trade-offs · roteiro ao vivo</p>
+</div>
+</section>
+
+<!-- ═══ SLIDE 22 — RESULTADOS ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Resultados</span>
+    <h2>O que foi medido</h2>
+  </div>
+  <div class="slide-body" style="gap:16px">
+    <div class="grid-4" style="flex:0">
+      <div class="stat-box orange"><span class="stat-num">2,9s → 0,2s</span><span class="stat-label">POST de um WAV de 42 MB</span></div>
+      <div class="stat-box blue"><span class="stat-num">≈14x</span><span class="stat-label">Ganho na resposta</span></div>
+      <div class="stat-box green"><span class="stat-num">43</span><span class="stat-label">Testes xUnit verdes</span></div>
+      <div class="stat-box purple"><span class="stat-num">0</span><span class="stat-label">Testes que precisam de rede</span></div>
+    </div>
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card green" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--green)">Cobertura</h4>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text">Integração ponta a ponta com <code>WebApplicationFactory</code> — upload → GET → download já em AAC</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text">Truncamento do resumo em 10 cenários — nunca passa de 500, nem parte emoji ao meio</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text">Fila e cancelamento do worker paralelo</span></div>
+        <div class="checklist-item"><i class="ph ph-check-circle check-icon"></i><span class="check-text">Vitest + RTL no cliente; gate em Docker sem rede e non-root</span></div>
+      </div>
+      <div class="card blue" style="display:flex;flex-direction:column;gap:4px">
+        <h4 style="color:var(--blue)">Garantia dos 500 caracteres — em 3 camadas</h4>
+        <div class="checklist-item"><i class="ph ph-number-circle-one check-icon" style="color:var(--blue)"></i><span class="check-text">No <strong>worker</strong>, ao gerar o resumo</span></div>
+        <div class="checklist-item"><i class="ph ph-number-circle-two check-icon" style="color:var(--blue)"></i><span class="check-text">Na <strong>API</strong>, em <code>SummaryTruncator.Clamp</code></span></div>
+        <div class="checklist-item"><i class="ph ph-number-circle-three check-icon" style="color:var(--blue)"></i><span class="check-text">Na <strong>coluna do banco</strong>, com <code>HasMaxLength(500)</code></span></div>
+        <div class="checklist-item"><i class="ph ph-info check-icon" style="color:var(--text-tertiary)"></i><span class="check-text">Nenhuma camada confia na anterior — com um stub devolvendo 5.000 caracteres, o resultado ainda sai com ≤ 500</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 23 — DECISÕES ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Trade-offs</span>
+    <h2>Decisões de arquitetura</h2>
+  </div>
+  <div class="slide-body" style="gap:12px">
+    <table class="challenge-table">
+      <thead><tr><th>Decisão</th><th>Alternativa rejeitada</th><th>Motivo</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Processar em background</td>
+          <td>Comprimir e transcrever no <code>POST</code></td>
+          <td>Transcrição escala com a <strong>duração</strong> do áudio (~10x tempo real) — 50 MB levaria minutos</td>
+        </tr>
+        <tr>
+          <td>Duas filas separadas</td>
+          <td>Uma fila para as duas etapas</td>
+          <td>Perfis opostos: compressão é CPU-bound e paralela; resumo é I/O-bound e serial</td>
+        </tr>
+        <tr>
+          <td>Reservar vaga antes de gravar</td>
+          <td>Gravar e depois enfileirar</td>
+          <td>Sem reserva, um 503 deixaria arquivo e linha órfãos no disco</td>
+        </tr>
+        <tr>
+          <td><code>IFileStore</code> como abstração</td>
+          <td>Escrever no disco direto no endpoint</td>
+          <td>Permite trocar por S3/Blob sem tocar nos endpoints</td>
+        </tr>
+        <tr>
+          <td>Whisper <code>tiny</code> local</td>
+          <td>API paga de transcrição</td>
+          <td>Requisito de IA leve e local; roda offline após o primeiro download dos pesos</td>
+        </tr>
+        <tr>
+          <td>SQLite</td>
+          <td>Postgres</td>
+          <td>Escopo acadêmico: um arquivo, zero setup. O <code>DbWriteGate</code> é o preço pago</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card orange" style="padding:11px 16px;display:flex;align-items:center;gap:9px;max-width:1020px">
+      <i class="ph ph-lightbulb" style="color:var(--orange);font-size:1.1em;flex-shrink:0"></i>
+      <span style="font-size:0.75em;color:var(--text-secondary)">
+        <strong>Isto é o oposto da conclusão da semana 2 — de propósito.</strong> Lá, comprimir custava 160 ms e não valia
+        um worker. Quando o resumo entrou (1435 ms, ~9x mais caro), o custo mudou de ordem e a decisão junto.
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 24 — COMO RODAR ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Execução</span>
+    <h2>Dois modos de subir o sistema</h2>
+  </div>
+  <div class="slide-body" style="gap:14px">
+    <div class="grid-2" style="flex:0;align-items:start">
+      <div class="card blue" style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <img class="logo-icon-lg" src="https://cdn.simpleicons.org/dotnet/512BD4" alt=".NET">
+          <div><h3>Desenvolvimento</h3><span style="font-size:0.68em;color:var(--text-tertiary);font-family:var(--mono)">dotnet run · :5218</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div class="stage-job"><i class="ph ph-terminal" style="color:var(--blue)"></i><code>dotnet run --project src/AudioApi</code></div>
+          <div class="stage-job"><i class="ph ph-terminal" style="color:var(--blue)"></i><code>cd web &amp;&amp; npm install &amp;&amp; npm run dev</code></div>
+          <div class="stage-job"><i class="ph ph-terminal" style="color:var(--blue)"></i><code>dotnet test</code></div>
+        </div>
+        <div class="stage-job"><i class="ph ph-info" style="color:var(--text-tertiary)"></i>Sumarização <strong>desligada</strong> por padrão — testes e CI nunca dependem de rede</div>
+        <span class="badge badge-blue" style="align-self:flex-start">requer .NET 10 + ffmpeg no PATH</span>
+      </div>
+      <div class="card green" style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <img class="logo-icon-lg" src="https://cdn.simpleicons.org/docker/2496ED" alt="Docker">
+          <div><h3>Completo</h3><span style="font-size:0.68em;color:var(--text-tertiary);font-family:var(--mono)">docker compose · :8080</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div class="stage-job"><i class="ph ph-terminal" style="color:var(--green)"></i><code>docker compose up --build</code></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>API + worker Whisper juntos, resumo <strong>já ligado</strong></div>
+          <div class="stage-job"><i class="ph ph-check-circle" style="color:var(--green)"></i>3 volumes: <code>audio-data</code>, <code>audio-files</code>, <code>whisper-models</code></div>
+        </div>
+        <div class="stage-job"><i class="ph ph-info" style="color:var(--text-tertiary)"></i>Primeira execução baixa os pesos (~75 MB); depois sobe offline</div>
+        <span class="badge badge-green" style="align-self:flex-start">só Docker na máquina</span>
+      </div>
+    </div>
+    <div class="card" style="padding:11px 16px;display:flex;align-items:center;gap:9px;max-width:1000px">
+      <i class="ph ph-book-open" style="color:var(--orange);font-size:1.1em;flex-shrink:0"></i>
+      <span style="font-size:0.76em;color:var(--text-secondary)">
+        Passo a passo completo no <strong><code>README.md</code></strong>; arquitetura, escopo e diagramas em <strong><code>docs/ARCHITECTURE.md</code></strong>
+      </span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 25 — DEMO ═══ -->
+<section>
+<div class="slide-inner">
+  <div class="slide-header">
+    <span class="eyebrow">Demo ao vivo</span>
+    <h2>Roteiro</h2>
+  </div>
+  <div class="slide-body">
+    <div class="timeline" style="width:100%;max-width:900px">
+      <div class="timeline-item">
+        <div class="timeline-dot orange">01</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Subir o sistema <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 1 min</span></div>
+          <div class="timeline-desc"><code>docker compose up --build</code> → API e worker de pé, <code>GET /health</code> respondendo</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot orange">02</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Swagger <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 1 min</span></div>
+          <div class="timeline-desc"><code>localhost:8080/swagger</code> → upload direto pela UI e leitura dos schemas</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot blue">03</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Arquivo <code>.http</code> <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 2 min</span></div>
+          <div class="timeline-desc">Upload → <strong>201 imediato</strong> → <code>GET /{id}</code> ainda <code>Pending</code> → segundos depois <code>Completed</code> com <code>.m4a</code></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot blue">04</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Resumo aparecendo <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 1 min</span></div>
+          <div class="timeline-desc"><code>GET /{id}/summary</code> em sequência: <code>Pending</code> → <code>Processing</code> → <code>Completed</code></div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot green">05</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Cliente web <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 2 min</span></div>
+          <div class="timeline-desc">Arrastar o áudio em <code>localhost:3000</code> → mensagem "processando" → resumo entra sozinho na conversa</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot green">06</div>
+        <div class="timeline-content">
+          <div class="timeline-title">Falhas controladas <span style="color:var(--text-tertiary);font-size:0.85em;font-weight:400">· 1 min</span></div>
+          <div class="timeline-desc">Enviar <code>.txt</code> → <strong>400</strong>; enviar ruído com nome <code>.wav</code> → <strong>201</strong> e depois <code>processingStatus: "Failed"</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══ SLIDE 26 — FECHAMENTO ═══ -->
+<section>
+<div class="slide-closing">
+  <h2 style="font-size:2.6em;font-weight:900;letter-spacing:-0.03em" class="gradient-text">O trabalho pesado<br>não mora na requisição</h2>
+  <p style="font-size:0.9em;color:var(--text-secondary);max-width:640px;line-height:1.65">
+    Validar é barato e fica no <code>POST</code>. Comprimir e transcrever são caros e vão para filas limitadas
+    com workers próprios. O cliente recebe o UUID em ~0,2 s e acompanha o resto por polling.
+  </p>
+  <div class="cover-pills" style="margin-top:6px">
+    <span class="stat-pill"><span class="dot dot-orange"></span>README.md</span>
+    <span class="stat-pill"><span class="dot dot-blue"></span>docs/ARCHITECTURE.md</span>
+    <span class="stat-pill"><span class="dot dot-green"></span>src/AudioApi/AudioApi.http</span>
+    <span class="stat-pill"><span class="dot dot-purple"></span>/swagger</span>
+  </div>
+  <p style="font-size:0.75em;color:var(--text-tertiary);margin-top:14px">Obrigado — perguntas?</p>
+</div>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  transition: 'fade',
+  transitionSpeed: 'fast',
+  backgroundTransition: 'fade',
+  controls: true,
+  progress: true,
+  slideNumber: 'c/t',
+  center: false,
+  width: 1280,
+  height: 720,
+  margin: 0,
+  minScale: 0.2,
+  maxScale: 2.0,
+  keyboard: true,
+  overview: true,
+  touch: true,
+  plugins: []
+});
+</script>
+</body>
+</html>
