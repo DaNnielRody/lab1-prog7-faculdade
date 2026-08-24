@@ -89,7 +89,9 @@ estão em [`docs/week5-parallel-users-before-after.md`](docs/week5-parallel-user
 Histórico do raciocínio: [`docs/week2-analysis.md`](docs/week2-analysis.md) (por que ainda não),
 [`docs/week3-threading-explanation.md`](docs/week3-threading-explanation.md) (o resumo sai da
 requisição), [`docs/week4-threading-pipeline.md`](docs/week4-threading-pipeline.md) (a compressão
-também sai, e a medição).
+também sai, e a medição),
+[`docs/week6-frontend-parallel-validation.md`](docs/week6-frontend-parallel-validation.md) (o
+paralelismo no cliente, validando o áudio antes do upload).
 
 ### Resumo de áudio (Whisper local, ≤ 500 caracteres)
 
@@ -156,6 +158,19 @@ sessão atual. Quando ainda não há resumo, a mensagem diz o motivo (comprimind
 mensagem do servidor, aguardando, ou resumo desativado); nenhum estado renderiza corpo vazio.
 O polling roda só enquanto houver áudio não-terminal e para sozinho quando todos chegam a um
 estado final.
+
+Um novo envio entra na lista **assim que o `POST` é aceito** — o DTO devolvido pela API é mostrado
+já em `Pending`/`Processing` e depois reconciliado com o `GET`, então a conversa nunca fica um ciclo
+de polling atrás do que o usuário acabou de enviar.
+
+**A validação acontece antes do upload, em paralelo.** Selecionar ou arrastar um arquivo dispara um
+**Web Worker** dedicado que confere extensão, MIME type correspondente, arquivo não vazio, teto de
+50 MB e a **assinatura do conteúdo** (magic bytes) dos sete formatos aceitos. Enquanto a validação
+roda o envio fica bloqueado; se ela reprovar, o arquivo não sai do navegador e a interface mostra o
+motivo. Ambientes sem `Worker` usam o mesmo validador por um fallback assíncrono. A validação da API
+continua valendo como segunda camada — o cliente não substitui o servidor, só evita subir 50 MB para
+receber um `400`. Detalhes e decisões em
+[`docs/week6-frontend-parallel-validation.md`](docs/week6-frontend-parallel-validation.md).
 
 O visual é especificado em [`docs/DESIGN.md`](docs/DESIGN.md) — todo valor visual do código resolve
 para um token declarado em `web/app/globals.css`. O Figma de referência está linkado no topo do
@@ -481,4 +496,7 @@ docs/
   week2-analysis.md
   week3-threading-explanation.md
   week4-threading-pipeline.md            # o pipeline em background e a medição
+  week5-parallel-users-before-after.md   # usuários simultâneos, antes vs depois
+  week6-frontend-parallel-validation.md  # validação em Web Worker antes do upload
+  benchmarks/parallel-audio-capacity.csv # amostras brutas da escada de usuários
 ```
