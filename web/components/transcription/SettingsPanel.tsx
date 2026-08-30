@@ -7,6 +7,7 @@ import { FileCard } from "@/components/ui/FileCard";
 import { Select } from "@/components/ui/Select";
 import { Stepper, type Step, type StepState } from "@/components/ui/Stepper";
 import { cn } from "@/components/ui/cn";
+import type { AudioValidationState } from "@/lib/audioValidation";
 import type { Phase, SelectedFile } from "@/lib/types";
 import { fileMeta } from "./format";
 
@@ -43,10 +44,25 @@ interface CtaSpec {
  * here duplicated the accessible name of a control the user was already looking at.
  * (The Figma does draw a panel CTA on frame 05 — node 5:503 — so this is a deliberate departure.)
  */
-function ctaFor(phase: Phase, hasFile: boolean): CtaSpec | null {
+function ctaFor(
+  phase: Phase,
+  hasFile: boolean,
+  validation: AudioValidationState,
+): CtaSpec | null {
   switch (phase) {
-    case "idle":
-      return { label: "Transcrever", loading: false, disabled: !hasFile };
+    case "idle": {
+      if (validation.status === "validating") {
+        return { label: "Validando áudio…", loading: true, disabled: true };
+      }
+      if (validation.status === "invalid" || validation.status === "error") {
+        return { label: "Arquivo inválido", loading: false, disabled: true };
+      }
+      return {
+        label: "Transcrever",
+        loading: false,
+        disabled: !hasFile || validation.status !== "valid",
+      };
+    }
     case "uploading":
       return { label: "Enviando…", loading: true, disabled: false };
 
@@ -61,9 +77,19 @@ function ctaFor(phase: Phase, hasFile: boolean): CtaSpec | null {
   }
 }
 
-function helperFor(phase: Phase, hasFile: boolean): string {
+function helperFor(
+  phase: Phase,
+  hasFile: boolean,
+  validation: AudioValidationState,
+): string {
   switch (phase) {
     case "idle":
+      if (validation.status === "validating") {
+        return "A extensão, o tipo, o tamanho e a assinatura estão sendo verificados fora da interface.";
+      }
+      if (validation.status === "invalid" || validation.status === "error") {
+        return "Remova o arquivo e selecione outro áudio para continuar.";
+      }
       return hasFile
         ? "O arquivo é enviado para POST /api/audios e transcrito fora da requisição."
         : "Escolha um áudio de até 50 MB para começar.";
@@ -93,6 +119,7 @@ function FieldGroup({ label, children }: { label: string; children: ReactNode })
 export interface SettingsPanelProps {
   phase: Phase;
   file: SelectedFile | null;
+  validation: AudioValidationState;
   onSelectFile: (file: File) => void;
   onClearFile: () => void;
   onSubmit: () => void;
@@ -102,12 +129,13 @@ export interface SettingsPanelProps {
 export function SettingsPanel({
   phase,
   file,
+  validation,
   onSelectFile,
   onClearFile,
   onSubmit,
   className,
 }: SettingsPanelProps) {
-  const cta = ctaFor(phase, file !== null);
+  const cta = ctaFor(phase, file !== null, validation);
   const steps: Step[] = STEP_STATES[phase].map((state, index) => ({
     id: STEP_LABELS[index],
     label: STEP_LABELS[index],
@@ -125,11 +153,28 @@ export function SettingsPanel({
       <h2 className="text-heading font-semibold text-text">Configurações</h2>
       <FieldGroup label="ÁUDIO">
         {file ? (
-          <FileCard
-            name={file.name}
-            meta={fileMeta(file.name, file.sizeBytes)}
-            onDismiss={phase === "idle" ? onClearFile : undefined}
-          />
+          <>
+            <FileCard
+              name={file.name}
+              meta={fileMeta(file.name, file.sizeBytes)}
+              onDismiss={phase === "idle" ? onClearFile : undefined}
+            />
+            {validation.status === "validating" ? (
+              <p className="text-caption text-text-secondary">
+                Validando arquivo de áudio…
+              </p>
+            ) : null}
+            {validation.status === "valid" ? (
+              <p className="text-caption text-text-secondary">
+                Arquivo validado e pronto para envio.
+              </p>
+            ) : null}
+            {validation.status === "invalid" || validation.status === "error" ? (
+              <p className="text-caption text-text-secondary">
+                {validation.message}
+              </p>
+            ) : null}
+          </>
         ) : (
           <Dropzone onFile={onSelectFile} disabled={phase === "uploading"} />
         )}
@@ -167,7 +212,7 @@ export function SettingsPanel({
           </Button>
         ) : null}
         <span className="text-center text-caption text-text-secondary">
-          {helperFor(phase, file !== null)}
+          {helperFor(phase, file !== null, validation)}
         </span>
       </div>
     </aside>

@@ -9,9 +9,10 @@ export interface UploadDialogProps {
   file: SelectedFile | null;
   onClose: () => void;
   onConfirm: () => void;
+  canConfirm: boolean;
 }
 
-export function UploadDialog({ open, file, onClose, onConfirm }: UploadDialogProps) {
+export function UploadDialog({ open, file, onClose, onConfirm, canConfirm }: UploadDialogProps) {
   return (
     <Dialog
       open={open}
@@ -30,7 +31,7 @@ export function UploadDialog({ open, file, onClose, onConfirm }: UploadDialogPro
         <Button variant="ghost" onClick={onClose}>
           Cancelar
         </Button>
-        <Button onClick={onConfirm} disabled={file === null}>
+        <Button onClick={onConfirm} disabled={file === null || !canConfirm}>
           Enviar e transcrever
         </Button>
       </DialogFooter>

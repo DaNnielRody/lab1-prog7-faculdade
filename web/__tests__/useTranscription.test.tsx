@@ -43,7 +43,8 @@ function summaryDto(status: SummaryStatus, overrides: Partial<AudioSummaryDto> =
   };
 }
 
-const file = () => new File(["conteudo"], "aula.mp3", { type: "audio/mpeg" });
+const MP3_SIGNATURE = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]);
+const file = () => new File([MP3_SIGNATURE], "aula.mp3", { type: "audio/mpeg" });
 
 async function tick(times = 1) {
   for (let i = 0; i < times; i += 1) {
@@ -69,6 +70,122 @@ describe("useTranscription", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("blocks upload while validation is pending and enables it only after a valid result", async () => {
+    class ControlledWorker {
+      static last: ControlledWorker;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      terminate = vi.fn();
+      requestId = 0;
+
+      constructor() {
+        ControlledWorker.last = this;
+      }
+
+      postMessage(message: { requestId: number }) {
+        this.requestId = message.requestId;
+      }
+
+      accept() {
+        this.onmessage?.(
+          new MessageEvent("message", {
+            data: { requestId: this.requestId, result: { valid: true } },
+          }),
+        );
+      }
+    }
+    vi.stubGlobal("Worker", ControlledWorker);
+    uploadAudioMock.mockResolvedValue(audioDto("Disabled"));
+
+    const { result } = renderHook(() => useTranscription());
+    act(() => result.current.selectFile(file()));
+
+    expect(result.current.validation.status).toBe("validating");
+    expect(result.current.canUpload).toBe(false);
+    expect(uploadAudioMock).not.toHaveBeenCalled();
+
+    await act(async () => ControlledWorker.last.accept());
+
+    expect(result.current.validation.status).toBe("valid");
+    expect(result.current.canUpload).toBe(true);
+  });
+
+  it("never calls uploadAudio for an invalid file", async () => {
+    const invalid = new File([MP3_SIGNATURE], "notas.txt", { type: "audio/mpeg" });
+    const { result } = renderHook(() => useTranscription());
+
+    act(() => result.current.selectFile(invalid));
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(result.current.validation).toMatchObject({
+      status: "invalid",
+      message: expect.stringMatching(/extensão \.txt/i),
+    });
+    expect(result.current.phase).toBe("idle");
+    expect(uploadAudioMock).not.toHaveBeenCalled();
+  });
+
+  it("presents Worker failures and keeps upload blocked", async () => {
+    class FailingWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      terminate = vi.fn();
+
+      postMessage() {
+        queueMicrotask(() => this.onerror?.(new ErrorEvent("error")));
+      }
+    }
+    vi.stubGlobal("Worker", FailingWorker);
+
+    const { result } = renderHook(() => useTranscription());
+    act(() => result.current.selectFile(file()));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.validation).toEqual({
+      status: "error",
+      message: "O validador paralelo de áudio falhou. Selecione o arquivo novamente.",
+    });
+    expect(result.current.canUpload).toBe(false);
+    expect(uploadAudioMock).not.toHaveBeenCalled();
+  });
+
+  it("terminates pending Workers on reset and unmount", () => {
+    class PendingWorker {
+      static instances: PendingWorker[] = [];
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      terminate = vi.fn();
+
+      constructor() {
+        PendingWorker.instances.push(this);
+      }
+
+      postMessage() {}
+    }
+    vi.stubGlobal("Worker", PendingWorker);
+
+    const { result, unmount } = renderHook(() => useTranscription());
+    act(() => result.current.selectFile(file()));
+    const resetWorker = PendingWorker.instances[0];
+
+    act(() => result.current.reset());
+
+    expect(resetWorker.terminate).toHaveBeenCalledOnce();
+    expect(result.current.validation.status).toBe("idle");
+
+    act(() => result.current.selectFile(file()));
+    const unmountWorker = PendingWorker.instances[1];
+    unmount();
+
+    expect(unmountWorker.terminate).toHaveBeenCalledOnce();
   });
 
   it("walks idle → uploading → pending → processing → completed", async () => {

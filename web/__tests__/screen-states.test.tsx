@@ -51,10 +51,12 @@ function summaryDto(
   };
 }
 
-const audioFile = () => new File(["conteudo"], "aula.mp3", { type: "audio/mpeg" });
+const MP3_SIGNATURE = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]);
+const audioFile = () => new File([MP3_SIGNATURE], "aula.mp3", { type: "audio/mpeg" });
 
 async function selectAndSubmit(user: ReturnType<typeof userEvent.setup>) {
   await user.upload(screen.getByLabelText("Escolher arquivo"), audioFile());
+  await screen.findByText("Arquivo validado e pronto para envio.");
   await user.click(screen.getByRole("button", { name: "Transcrever" }));
   await user.click(screen.getByRole("button", { name: "Enviar e transcrever" }));
 }

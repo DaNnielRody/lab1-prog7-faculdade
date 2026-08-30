@@ -5,6 +5,8 @@ servidor e leia o resumo de até 500 caracteres — tudo na mesma conversa.
 
 - **Stack**: Next.js (App Router) + TypeScript + Tailwind v4. Sem biblioteca de componentes, de
   estado ou de HTTP — React e a plataforma.
+- **Paralelismo no cliente**: a validação pré-upload roda em um Web Worker dedicado; ambientes
+  sem Worker usam o mesmo validador por um fallback assíncrono.
 - **Design**: [`../docs/DESIGN.md`](../docs/DESIGN.md) é a fonte da verdade visual. Todo valor
   visual do código resolve para um token declarado em [`app/globals.css`](app/globals.css).
   Gap no design volta para o documento, nunca é improvisado no TSX.
@@ -47,6 +49,12 @@ npm run build
 
 Cobertura relevante:
 
+- `__tests__/audio-validation.test.ts` — extensão, MIME, limite de 50 MB, arquivo vazio e magic
+  bytes dos formatos aceitos, incluindo o runner paralelo e seu fallback.
+- `__tests__/upload-validation-flow.test.tsx` — estado “validando”, bloqueio do envio inválido e
+  apresentação de falhas do Worker.
+- `__tests__/useProcessedAudios.test.tsx` — inclusão imediata de um áudio Pending aceito pelo POST
+  enquanto a lista é reconciliada com o servidor.
 - `__tests__/loading-state.test.tsx` — **requisito do MR**: o componente de carregamento aparece
   enquanto o arquivo está sendo enviado e some quando o upload resolve.
 - `__tests__/tokens.test.ts` — trava os contrastes citados nos comentários dos tokens; um número
@@ -67,9 +75,24 @@ components/
   transcription/  composições da tela (rail, topbar, thread, painel, player, modais)
 lib/
   api.ts             único módulo que fala HTTP com a AudioApi
+  audioValidation.ts regras puras de validação de arquivos de áudio
+  audioValidationClient.ts execução em Worker e fallback assíncrono
   useTranscription.ts máquina de fases (upload + polling)
   types.ts           espelhos TS dos DTOs em C#
+workers/
+  audioValidation.worker.ts entrada do Worker de validação pré-upload
 ```
+
+## Validação antes do upload
+
+Selecionar ou arrastar um arquivo inicia a validação antes de qualquer `POST /api/audios`. A
+confirmação fica desabilitada até o resultado. São verificados extensão, MIME type correspondente,
+arquivo não vazio, tamanho máximo de 50 MB e assinatura do conteúdo para MP3, WAV, OGG, FLAC, M4A,
+AAC e WEBM. Arquivos rejeitados permanecem apenas no cliente e a interface informa o motivo.
+
+O atributo `accept` da entrada é apenas uma ajuda para o seletor de arquivos; a decisão é feita
+pelo validador após a seleção e também vale para drag-and-drop. A validação da API permanece como
+segunda camada de proteção.
 
 ## Verificação manual (ponta a ponta)
 

@@ -47,6 +47,7 @@ modelo de transcrição, o timeout estoura, e um pico de uploads simultâneos de
 | F4 | **Resumir** o áudio em ≤ 500 caracteres com IA local | `SummaryTruncatorTests`, `AudioSummaryIntegrationTests` |
 | F5 | Expor consulta de metadados, resumo, download e listagem | `AudioApiIntegrationTests` |
 | F6 | Cliente web que envia o áudio e mostra o resultado na mesma tela | Vitest em `web/__tests__` |
+| F7 | Bloquear no cliente, **antes do upload**, arquivo que não é áudio aceitável | `audio-validation`, `upload-validation-flow` (Vitest) |
 
 **Não funcionais**
 
@@ -156,7 +157,10 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    U["Upload<br/>multipart"] --> V{"Válido?"}
+    CS["Seleção no cliente"] --> CV{"Válido?<br/>Web Worker"}
+    CV -- não --> ECL["Bloqueado no cliente<br/>nenhuma requisição"]
+    CV -- sim --> U["Upload<br/>multipart"]
+    U --> V{"Válido?"}
     V -- não --> E400["400<br/>ProblemDetails"]
     V -- sim --> R{"Vaga na fila?"}
     R -- não --> E503["503<br/>nada persistido"]
@@ -171,7 +175,9 @@ flowchart LR
 ```
 
 O ponto central: a linha sólida é a requisição HTTP e termina em ~0,2 s; as linhas tracejadas são
-trabalho em background. Nada de `ffmpeg` ou Whisper dentro do `POST`.
+trabalho em background. Nada de `ffmpeg` ou Whisper dentro do `POST`. À esquerda do upload, a
+validação em Web Worker do cliente evita a requisição inteira quando o arquivo já é reprovável —
+sem substituir a validação do servidor, que continua respondendo `400`.
 
 ### 5.2 Sequência completa
 
@@ -255,6 +261,7 @@ stateDiagram-v2
 | Compressão | `Parallel.ForEachAsync` | `ProcessorCount` | CPU-bound, escala com os núcleos |
 | Resumo | `SemaphoreSlim` | 1 (padrão) | I/O contra uma VPS de 4 vCPUs; mais paralelismo só atrasa todo mundo |
 | Escrita no banco | `SemaphoreSlim(1,1)` (`DbWriteGate`) | 1 | SQLite aceita um escritor por vez |
+| Validação pré-upload (cliente) | **Web Worker** dedicado, com fallback assíncrono | 1 por seleção | Tira a leitura e a checagem de assinatura da thread que pinta a interface |
 
 ### 5.5 Política de exceções do worker
 
@@ -359,4 +366,5 @@ Estado persistido em três volumes nomeados; nada de estado dentro do container.
 | [`week3-threading-explanation.md`](week3-threading-explanation.md) | O resumo sai da requisição |
 | [`week4-threading-pipeline.md`](week4-threading-pipeline.md) | A compressão também sai, e a medição |
 | [`week5-parallel-users-before-after.md`](week5-parallel-users-before-after.md) | Usuários simultâneos antes e depois |
+| [`week6-frontend-parallel-validation.md`](week6-frontend-parallel-validation.md) | Paralelismo no cliente: validação em Web Worker antes do upload |
 | [`presentation.html`](presentation.html) | Slides de apresentação |
