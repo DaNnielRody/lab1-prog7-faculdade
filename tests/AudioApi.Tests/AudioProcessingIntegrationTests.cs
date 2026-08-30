@@ -6,6 +6,7 @@ using AudioApi.Compression;
 using AudioApi.Processing;
 using AudioApi.Dtos;
 using AudioApi.Models;
+using AudioApi.Options;
 using AudioApi.Summarization;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Hosting;
@@ -305,6 +306,38 @@ public class AudioProcessingIntegrationTests
 
         var processed = await Task.WhenAll(created.Select(c => PollUntilProcessedAsync(client, c.Id)));
 
+        Assert.All(processed, audio =>
+        {
+            Assert.Equal(ProcessingStatus.Completed, audio.ProcessingStatus);
+            Assert.Null(audio.ProcessingError);
+            Assert.EndsWith(".m4a", audio.StoredFileName);
+        });
+    }
+
+    [Fact]
+    public async Task Processing_SequentialWorker_NeverOverlapsJobs_AndCompletesAllQueuedJobs()
+    {
+        const int uploads = 3;
+        var compressor = new BlockingAudioCompressor(expectedConcurrentJobs: 1);
+
+        using var factory = new ProcessingAppFactory(
+            executionMode: AudioExecutionMode.Sequential,
+            maxConcurrency: 4,
+            compressor: compressor);
+        var client = factory.CreateClient();
+        var bytes = TestAudio.CreateValidWavBytes();
+
+        var created = await Task.WhenAll(Enumerable.Range(0, uploads)
+            .Select(i => UploadAsync(client, bytes, $"sequential-{i}.wav", "audio/wav")));
+
+        await compressor.AllExpectedJobsStarted.WaitAsync(TimeSpan.FromSeconds(10));
+        compressor.Release();
+
+        var processed = await Task.WhenAll(created.Select(c => PollUntilProcessedAsync(client, c.Id)));
+
+        Assert.Equal(uploads, compressor.StartedJobs);
+        Assert.Equal(1, compressor.MaxObservedConcurrency);
+        Assert.Equal(0, compressor.CurrentConcurrency);
         Assert.All(processed, audio =>
         {
             Assert.Equal(ProcessingStatus.Completed, audio.ProcessingStatus);
@@ -737,6 +770,7 @@ public class AudioProcessingIntegrationTests
         private readonly bool _summarizationEnabled;
         private readonly string? _summarizerSummary;
         private readonly int _maxConcurrency;
+        private readonly AudioExecutionMode _executionMode;
         private readonly int _queueCapacity;
         private readonly IAudioCompressor? _compressor;
         private readonly IProcessingQueue? _processingQueue;
@@ -748,6 +782,7 @@ public class AudioProcessingIntegrationTests
             bool summarizationEnabled = false,
             string? summarizerSummary = null,
             int maxConcurrency = 4,
+            AudioExecutionMode executionMode = AudioExecutionMode.Parallel,
             int queueCapacity = 100,
             IAudioCompressor? compressor = null,
             IProcessingQueue? processingQueue = null,
@@ -761,6 +796,7 @@ public class AudioProcessingIntegrationTests
             _summarizationEnabled = summarizationEnabled;
             _summarizerSummary = summarizerSummary;
             _maxConcurrency = maxConcurrency;
+            _executionMode = executionMode;
             _queueCapacity = queueCapacity;
             _compressor = compressor;
             _processingQueue = processingQueue;
@@ -783,6 +819,7 @@ public class AudioProcessingIntegrationTests
                 ["Summarization__Enabled"] = _summarizationEnabled ? "true" : "false",
                 ["Summarization__MaxConcurrency"] = "1",
                 ["Processing__MaxConcurrency"] = _maxConcurrency.ToString(),
+                ["Processing__ExecutionMode"] = _executionMode.ToString(),
                 ["Processing__QueueCapacity"] = _queueCapacity.ToString(),
             });
 

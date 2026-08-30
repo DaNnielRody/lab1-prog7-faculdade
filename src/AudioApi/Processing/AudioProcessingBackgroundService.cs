@@ -35,21 +35,28 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "Worker de compressão iniciado (concorrência: {MaxConcurrency}, capacidade da fila: {QueueCapacity}).",
-            _options.EffectiveMaxConcurrency, _options.QueueCapacity);
+            "Worker de compressão iniciado (modo: {ExecutionMode}, concorrência: {MaxConcurrency}, capacidade da fila: {QueueCapacity}).",
+            _options.ExecutionMode, _options.EffectiveMaxConcurrency, _options.QueueCapacity);
 
         try
         {
             await RecoverUnfinishedJobsAsync(stoppingToken);
 
-            await Parallel.ForEachAsync(
-                _queue.ReadAllAsync(stoppingToken),
-                new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = _options.EffectiveMaxConcurrency,
-                    CancellationToken = stoppingToken,
-                },
-                async (audioId, ct) => await ProcessGuardedAsync(audioId, ct, stoppingToken));
+            if (_options.ExecutionMode == AudioExecutionMode.Sequential)
+            {
+                await ConsumeSequentiallyAsync(stoppingToken);
+            }
+            else
+            {
+                await Parallel.ForEachAsync(
+                    _queue.ReadAllAsync(stoppingToken),
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = _options.EffectiveMaxConcurrency,
+                        CancellationToken = stoppingToken,
+                    },
+                    async (audioId, ct) => await ProcessGuardedAsync(audioId, ct, stoppingToken));
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -66,6 +73,17 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                 ex.GetType().Name);
             await FailUnfinishedJobsAsync("O processamento foi interrompido por uma falha interna.");
             throw ex is FatalAudioProcessingException ? ex : new FatalAudioProcessingException();
+        }
+    }
+
+    private async Task ConsumeSequentiallyAsync(CancellationToken stoppingToken)
+    {
+        await foreach (var audioId in _queue.ReadAllAsync(stoppingToken))
+        {
+            // Deliberately await each item before reading the next one. In particular, do not use
+            // Task.Run, a semaphore or a fire-and-forget continuation here: this is the true
+            // single-worker baseline used by the benchmark.
+            await ProcessGuardedAsync(audioId, stoppingToken, stoppingToken);
         }
     }
 

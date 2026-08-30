@@ -20,6 +20,18 @@ export type AudioValidationState =
   | { status: "invalid"; message: string }
   | { status: "error"; message: string };
 
+/**
+ * The synchronous part of validation is kept independent from the File API. This gives the
+ * sequential baseline a deterministic, single-threaded entry point while the normal browser path
+ * can still read the first bytes without copying a complete upload.
+ */
+export interface AudioValidationBytesInput {
+  name: string;
+  type: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
 interface AudioFormat {
   label: string;
   mimeTypes: readonly string[];
@@ -100,8 +112,12 @@ function readBytes(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-export async function validateAudioFile(file: File): Promise<AudioValidationResult> {
-  const extension = extensionOf(file.name);
+function validateMetadata(
+  name: string,
+  type: string,
+  size: number,
+): { format: AudioFormat; extension: string } | AudioValidationResult {
+  const extension = extensionOf(name);
   const format = AUDIO_FORMATS[extension];
 
   if (!format) {
@@ -112,7 +128,7 @@ export async function validateAudioFile(file: File): Promise<AudioValidationResu
     };
   }
 
-  const mimeType = file.type.trim().toLowerCase();
+  const mimeType = type.trim().toLowerCase();
   if (!format.mimeTypes.includes(mimeType)) {
     return {
       valid: false,
@@ -120,15 +136,22 @@ export async function validateAudioFile(file: File): Promise<AudioValidationResu
     };
   }
 
-  if (file.size === 0) {
+  if (size === 0) {
     return { valid: false, message: "O arquivo de áudio está vazio." };
   }
 
-  if (file.size > MAX_AUDIO_SIZE_BYTES) {
+  if (size > MAX_AUDIO_SIZE_BYTES) {
     return { valid: false, message: "O arquivo excede o tamanho máximo de 50 MB." };
   }
 
-  const bytes = await readBytes(file.slice(0, 16));
+  return { format, extension };
+}
+
+function validateSignature(
+  format: AudioFormat,
+  extension: string,
+  bytes: Uint8Array,
+): AudioValidationResult {
   if (!format.hasValidSignature(bytes)) {
     return {
       valid: false,
@@ -137,4 +160,31 @@ export async function validateAudioFile(file: File): Promise<AudioValidationResu
   }
 
   return { valid: true };
+}
+
+/**
+ * Validates metadata and the supplied header synchronously. It is intentionally free of Promise,
+ * Worker and scheduling primitives so it can serve as the sequential benchmark baseline.
+ */
+export function validateAudioBytes(input: AudioValidationBytesInput): AudioValidationResult {
+  const metadata = validateMetadata(input.name, input.type, input.size);
+  if ("valid" in metadata) return metadata;
+  return validateSignature(metadata.format, metadata.extension, input.bytes);
+}
+
+export async function validateAudioFile(file: File): Promise<AudioValidationResult> {
+  const metadata = validateMetadata(file.name, file.type, file.size);
+  if ("valid" in metadata) return metadata;
+
+  const bytes = await readBytes(file.slice(0, 16));
+  return validateSignature(metadata.format, metadata.extension, bytes);
+}
+
+/**
+ * Sequential browser path: one read followed by one synchronous validation on the main thread.
+ * Blob.arrayBuffer is necessarily Promise-based in browsers; the important comparison boundary is
+ * that this function creates no Worker and never overlaps two validations.
+ */
+export async function validateAudioFileSequential(file: File): Promise<AudioValidationResult> {
+  return validateAudioFile(file);
 }

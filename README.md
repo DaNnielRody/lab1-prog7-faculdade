@@ -15,6 +15,8 @@ do file store e os demais metadados.
 | **Documentação Swagger/OpenAPI** | `http://localhost:5218/swagger` (JSON em `/swagger/v1/swagger.json`) |
 | **Arquivo `.http`** para testar a API | [`src/AudioApi/AudioApi.http`](src/AudioApi/AudioApi.http) |
 | **Slides de apresentação** | [`docs/presentation.html`](docs/presentation.html) — abra no navegador |
+| **Benchmark sequencial vs. otimizado e análise** | [`docs/activity-1-sequential-vs-parallel-benchmark.md`](docs/activity-1-sequential-vs-parallel-benchmark.md) |
+| **Descrição pronta do MR** | [`docs/mr-activity-1.md`](docs/mr-activity-1.md) |
 | **Instruções de configuração e execução** | este README, seções abaixo |
 
 ## O que o projeto faz
@@ -92,6 +94,13 @@ requisição), [`docs/week4-threading-pipeline.md`](docs/week4-threading-pipelin
 também sai, e a medição),
 [`docs/week6-frontend-parallel-validation.md`](docs/week6-frontend-parallel-validation.md) (o
 paralelismo no cliente, validando o áudio antes do upload).
+
+O comparativo exigido pela Atividade #1 está em
+[`docs/activity-1-sequential-vs-parallel-benchmark.md`](docs/activity-1-sequential-vs-parallel-benchmark.md):
+ele documenta a versão sequencial da API e do cliente, os CSVs brutos, os gráficos, as métricas,
+as porcentagens de economia e as limitações. O estado otimizado/paralelo continua sendo o padrão;
+`Processing:ExecutionMode=Sequential` e `NEXT_PUBLIC_AUDIO_VALIDATION_MODE=sequential` servem
+como baseline reproduzível.
 
 ### Resumo de áudio (Whisper local, ≤ 500 caracteres)
 
@@ -372,9 +381,45 @@ O projeto **`tests/AudioApi.Tests`** (xUnit) inclui:
     500), corte em fim de frase, `…` no corte por palavra e emoji não partido ao meio.
   - `WhisperAudioSummarizerTests`: com um worker stub devolvendo **5.000 caracteres**, o resultado
     sai com ≤ 500; erros HTTP, JSON inválido e resumo vazio viram exceção.
-  - `AudioSummaryIntegrationTests`: fluxo completo com um `IAudioSummarizer` falso — upload →
+- `AudioSummaryIntegrationTests`: fluxo completo com um `IAudioSummarizer` falso — upload →
     `Pending` → `Completed` com resumo persistido ≤ 500; falha do summarizer → `Failed` sem quebrar
     o upload (segue 201); com a feature desligada → `Disabled`.
+
+## Benchmark da Atividade #1
+
+O modo otimizado/paralelo é o padrão. Para exercitar a baseline serial da API, defina
+`Processing__ExecutionMode=Sequential`; para voltar, use `Parallel`. “Sequencial” significa que
+jobs não se sobrepõem; os `await` de I/O, SQLite e do processo `ffmpeg` continuam necessários.
+
+O harness executa os dois modos no mesmo binário, alterna a ordem das rodadas, cria banco/file
+store novos, aquece o processo e grava p50/p95 do POST, makespan, jobs/s, estados e critério de
+sucesso:
+
+```bash
+scripts/activity-1-sequential-benchmark.sh \
+  --output docs/benchmarks/api-sequential-vs-parallel.csv \
+  --force --rounds 3 --max-users 8 --fixture-duration-seconds 1 \
+  --max-concurrency 4 --queue-capacity 10 --post-sla-ms 4000 \
+  --terminal-deadline-seconds 30 --port 51829
+
+scripts/activity-1-sequential-benchmark.sh \
+  --output docs/benchmarks/api-sequential-vs-parallel-heavy.csv \
+  --force --rounds 3 --max-users 16 --fixture-duration-seconds 10 \
+  --max-concurrency 4 --queue-capacity 20 --post-sla-ms 4000 \
+  --terminal-deadline-seconds 60 --port 51831
+```
+
+Para o cliente, `NEXT_PUBLIC_AUDIO_VALIDATION_MODE=sequential npm run dev` desliga o Worker
+explicitamente. O benchmark headless do núcleo roda com:
+
+```bash
+cd web
+npm run benchmark:client
+```
+
+Para medir o Worker real, suba `npm run dev`, abra `/benchmark` e clique em “Executar benchmark”;
+essa página de instrumentação não altera dados da API. O relatório completo, os CSVs e as
+limitações estão em [`docs/activity-1-sequential-vs-parallel-benchmark.md`](docs/activity-1-sequential-vs-parallel-benchmark.md).
 
 ### Gate de sandbox (Docker, sem rede, non-root)
 
@@ -410,11 +455,13 @@ No Docker esses caminhos são `/app/filestore` e `/app/data`, mapeados para volu
     "BitrateKbps": 128                 // bitrate do AAC de saída
   },
   "Processing": {
+    "ExecutionMode": "Parallel",       // Parallel (padrão) ou Sequential (baseline)
     "MaxConcurrency": 0,               // 0 (ou ausente) = número de processadores da máquina
     "QueueCapacity": 100               // fila cheia → HTTP 503 sem persistir upload
   },
   "Summarization": {
     "Enabled": false,                  // true liga o resumo; false = nunca toca a rede
+    "ExecutionMode": "Parallel",       // Parallel (padrão) ou Sequential (baseline)
     "Endpoint": "http://localhost:9000", // base URL do worker Whisper
     "ApiKey": "",                      // enviado no header X-API-Key
     "TimeoutSeconds": 300,             // transcrição em CPU é lenta
@@ -454,6 +501,7 @@ src/AudioApi/
   Options/StorageOptions.cs
   Options/UploadOptions.cs
   Options/CompressionOptions.cs
+  Options/AudioExecutionMode.cs
   Options/ProcessingOptions.cs
   Options/SummarizationOptions.cs
   Storage/IFileStore.cs
@@ -498,5 +546,10 @@ docs/
   week4-threading-pipeline.md            # o pipeline em background e a medição
   week5-parallel-users-before-after.md   # usuários simultâneos, antes vs depois
   week6-frontend-parallel-validation.md  # validação em Web Worker antes do upload
+  activity-1-sequential-vs-parallel-benchmark.md # baseline, métricas, gráficos e conclusões
+  mr-activity-1.md                         # descrição e plano de testes do MR
   benchmarks/parallel-audio-capacity.csv # amostras brutas da escada de usuários
+  benchmarks/api-sequential-vs-parallel.csv # API: workload curto, dados brutos
+  benchmarks/api-sequential-vs-parallel-heavy.csv # API: workload pesado, dados brutos
+  benchmarks/client-validation.json      # cliente: headless + Edge real
 ```

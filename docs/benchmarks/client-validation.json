@@ -1,0 +1,61 @@
+{
+  "headlessRun": {
+    "generatedAtUtc": "2026-08-29T21:21:45Z",
+    "source": "web/benchmarks/client-validation.bench.test.ts",
+    "iterations": 40,
+    "fixture": "MP3 header + zero-filled payload; validation reads only the first 16 bytes",
+    "workerMeasurement": "headless protocol-faithful Worker double; not a real parallel-thread measurement",
+    "rows": [
+      {
+        "bytes": 16384,
+        "sequentialCoreP50Ms": 0.00334,
+        "sequentialFileApiP50Ms": 0.00730,
+        "workerDispatchP50Ms": 0.03056,
+        "sequentialCoreAverageMs": 0.004405,
+        "sequentialFileApiAverageMs": 0.010505,
+        "workerDispatchAverageMs": 0.044708
+      },
+      {
+        "bytes": 262144,
+        "sequentialCoreP50Ms": 0.00171,
+        "sequentialFileApiP50Ms": 0.00648,
+        "workerDispatchP50Ms": 0.03318,
+        "sequentialCoreAverageMs": 0.002143,
+        "sequentialFileApiAverageMs": 0.007997,
+        "workerDispatchAverageMs": 0.037136
+      },
+      {
+        "bytes": 1048576,
+        "sequentialCoreP50Ms": 0.00129,
+        "sequentialFileApiP50Ms": 0.00498,
+        "workerDispatchP50Ms": 0.02495,
+        "sequentialCoreAverageMs": 0.001723,
+        "sequentialFileApiAverageMs": 0.006158,
+        "workerDispatchAverageMs": 0.028278
+      }
+    ]
+  },
+  "browserRun": {
+    "generatedAtUtc": "2026-08-30T00:36:58Z",
+    "browser": "Microsoft Edge headless 151.0.4129.107",
+    "page": "http://127.0.0.1:3010/benchmark",
+    "iterations": 12,
+    "payloadBytes": 8388608,
+    "workload": "12 validations in series per mode, matching one selected file at a time",
+    "rows": [
+      {
+        "mode": "sequential",
+        "totalMs": 3.400,
+        "averageMs": 0.283,
+        "eventLoopTimerMs": 0.600
+      },
+      {
+        "mode": "worker",
+        "totalMs": 165.300,
+        "averageMs": 13.775,
+        "eventLoopTimerMs": 0.400
+      }
+    ],
+    "interpretation": "The real Worker preserves a comparable timer delay while paying worker creation/message overhead. This workload is too light to save wall-clock time; responsiveness is the reason to keep the Worker."
+  }
+}
