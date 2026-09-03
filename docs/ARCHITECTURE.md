@@ -167,8 +167,11 @@ flowchart LR
     R -- sim --> S["Grava bytes + linha<br/>UUID · URL · Pending"]
     S --> C201["201 Created<br/>~0,2 s"]
     S -.enfileira.-> P1["Compressão<br/>ffmpeg → AAC .m4a"]
+    P1 -- ok --> PF["Filtro<br/>ffmpeg -af → .filtered.m4a"]
     P1 -- ok --> P2["Resumo<br/>Whisper tiny → ≤500 chars"]
     P1 -- erro --> F1["processingStatus<br/>Failed"]
+    PF -- ok --> DF["filterStatus<br/>Completed"]
+    PF -- erro --> F3["filterStatus<br/>Failed<br/>áudio segue Completed"]
     P2 -- ok --> D["Completed<br/>resumo persistido"]
     P2 -- erro --> F2["summaryStatus<br/>Failed"]
     C201 -.polling.-> D
@@ -178,6 +181,10 @@ O ponto central: a linha sólida é a requisição HTTP e termina em ~0,2 s; as 
 trabalho em background. Nada de `ffmpeg` ou Whisper dentro do `POST`. À esquerda do upload, a
 validação em Web Worker do cliente evita a requisição inteira quando o arquivo já é reprovável —
 sem substituir a validação do servidor, que continua respondendo `400`.
+
+O filtro é um **produto derivado**, não uma etapa do caminho crítico: ele roda no mesmo job, depois
+que a compressão já foi comitada, e sua falha é contida no próprio `filterStatus`. Um áudio com
+filtro falho continua `Completed`, continua baixável e continua sendo resumido.
 
 ### 5.2 Sequência completa
 
@@ -241,6 +248,23 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     direction LR
+    state "FilterStatus" as FS {
+        [*] --> Pending
+        Pending --> Processing: após o commit da compressão
+        Processing --> Completed
+        Processing --> Failed
+        Processing --> Pending: compressão falhou / recuperado no start
+        Completed --> [*]
+        Failed --> [*]
+    }
+```
+
+Recuperação: uma linha cujo processamento já é `Completed` mas cujo filtro parou em `Pending` ou
+`Processing` é readmitida no start e **re-executa apenas o filtro** — nunca uma recompressão.
+
+```mermaid
+stateDiagram-v2
+    direction LR
     state "SummaryStatus" as SS {
         [*] --> Disabled: Summarization:Enabled = false
         [*] --> Pending
@@ -259,6 +283,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | Admissão | `Channel<Guid>` bounded + reserva | `QueueCapacity: 100` | Backpressure explícito: sem vaga → 503 antes de escrever |
 | Compressão | `Parallel.ForEachAsync` | `ProcessorCount` | CPU-bound, escala com os núcleos |
+| Filtro | dentro do mesmo job da compressão | herda o grau da compressão | Depende do `.m4a` que a compressão acabou de produzir; uma fila própria seria infraestrutura sem demanda |
 | Resumo | `SemaphoreSlim` | 1 (padrão) | I/O contra uma VPS de 4 vCPUs; mais paralelismo só atrasa todo mundo |
 | Escrita no banco | `SemaphoreSlim(1,1)` (`DbWriteGate`) | 1 | SQLite aceita um escritor por vez |
 | Validação pré-upload (cliente) | **Web Worker** dedicado, com fallback assíncrono | 1 por seleção | Tira a leitura e a checagem de assinatura da thread que pinta a interface |
@@ -271,6 +296,7 @@ stateDiagram-v2
 | `AudioCompressionException` (ffmpeg ≠ 0) | Falha permanente do item: marca só aquele áudio como `Failed` e continua |
 | `FileNotFoundException` do arquivo específico | Falha conhecida do item: mensagem pública sem caminho, segue para os próximos jobs |
 | Demais `IOException` / `UnauthorizedAccessException`, `Win32Exception`, `DbUpdateException` / `SqliteException`, não classificados | Potencialmente sistêmico: log `Critical`, exceção fatal sanitizada, terminalização best-effort |
+| Qualquer exceção não-cancelamento **dentro do passo de filtro** | Contida em `filterStatus: Failed`. Um produto derivado não reprova o áudio já concluído, não falha o resumo e não derruba o worker |
 
 Não há retry automático — áudio inválido é falha permanente, e o projeto não tem critério seguro de
 idempotência para filesystem ou SQLite.
@@ -285,6 +311,7 @@ idempotência para filesystem ou SQLite.
 | `GET` | `/api/audios` | **200** lista (mais recentes primeiro) | — |
 | `GET` | `/api/audios/{id}` | **200** `AudioFileDto` | **404** |
 | `GET` | `/api/audios/{id}/download` | **200** stream (original enquanto `Pending`/`Processing`, `.m4a` depois) | **404** |
+| `GET` | `/api/audios/{id}/download/filtered` | **200** stream `.filtered.m4a` | **404** id desconhecido · filtro não concluído · arquivo ausente |
 | `GET` | `/api/audios/{id}/summary` | **200** `AudioSummaryDto` | **404** |
 | `GET` | `/health` | **200** | — |
 
@@ -341,14 +368,17 @@ Estado persistido em três volumes nomeados; nada de estado dentro do container.
 | Whisper `tiny` local | API paga de transcrição | Requisito de IA leve local; roda offline após o primeiro download |
 | Limite de 500 caracteres em 3 camadas | Só no worker | Worker + `SummaryTruncator.Clamp` na API + `HasMaxLength(500)` na coluna — nenhuma camada confia na anterior |
 | Sem retry | Retry com backoff | Áudio inválido é falha permanente; não há critério seguro de transitoriedade aqui |
+| Filtro dentro do job de compressão | Terceira fila com hosted service próprio | Depende do `.m4a` recém-produzido; uma fila a mais seria infraestrutura sem demanda |
+| Filtro como arquivo extra | Substituir o `.m4a` pelo filtrado | O usuário precisa ouvir os dois; substituir destruiria o áudio canônico |
+| Passo de filtro totalmente isolado | Isolar só a taxonomia conhecida | Uma falha ao gerar um acessório passaria a marcar como `Failed` um áudio já concluído e a derrubar o worker |
 
 ---
 
 ## 9. Qualidade
 
-- **43 testes** (xUnit) no servidor, todos verdes, nenhum precisando de rede ou do worker:
+- **81 testes** (xUnit) no servidor, todos verdes, nenhum precisando de rede ou do worker:
   validação, integração ponta a ponta com `WebApplicationFactory`, pipeline de processamento,
-  compressor, truncamento do resumo e sumarizador com stub.
+  compressor, filtro e seus estados terminais, truncamento do resumo e sumarizador com stub.
 - **Vitest + React Testing Library** no cliente: estados de tela, histórico, primitivas de UI,
   tokens de design e camada de API.
 - **Gate de sandbox** em Docker — sem rede, non-root (`docker-compose.dark-factory.yml`).
@@ -367,4 +397,5 @@ Estado persistido em três volumes nomeados; nada de estado dentro do container.
 | [`week4-threading-pipeline.md`](week4-threading-pipeline.md) | A compressão também sai, e a medição |
 | [`week5-parallel-users-before-after.md`](week5-parallel-users-before-after.md) | Usuários simultâneos antes e depois |
 | [`week6-frontend-parallel-validation.md`](week6-frontend-parallel-validation.md) | Paralelismo no cliente: validação em Web Worker antes do upload |
+| [`week7-audio-filter-and-preview.md`](week7-audio-filter-and-preview.md) | Filtro derivado no servidor e barra de prévia por item processado |
 | [`presentation.html`](presentation.html) | Slides de apresentação |

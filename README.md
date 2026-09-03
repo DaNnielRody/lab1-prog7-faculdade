@@ -16,6 +16,7 @@ do file store e os demais metadados.
 | **Arquivo `.http`** para testar a API | [`src/AudioApi/AudioApi.http`](src/AudioApi/AudioApi.http) |
 | **Slides de apresentação** | [`docs/presentation.html`](docs/presentation.html) — abra no navegador |
 | **Benchmark sequencial vs. otimizado e análise** | [`docs/activity-1-sequential-vs-parallel-benchmark.md`](docs/activity-1-sequential-vs-parallel-benchmark.md) |
+| **Filtro de áudio no servidor e prévia no cliente** | [`docs/week7-audio-filter-and-preview.md`](docs/week7-audio-filter-and-preview.md) |
 | **Descrição pronta do MR** | [`docs/mr-activity-1.md`](docs/mr-activity-1.md) |
 | **Instruções de configuração e execução** | este README, seções abaixo |
 
@@ -28,11 +29,15 @@ do file store e os demais metadados.
 - Persiste um registro no banco com: `Id`, `OriginalFileName`, `StoredFileName`, `Url`,
   `ContentType`, `SizeBytes`, `CreatedAtUtc`, os campos de processamento (`ProcessingStatus`,
   `ProcessingError`, `ProcessingUpdatedAtUtc`) e os de resumo (`Summary`, `SummaryStatus`,
-  `SummaryLanguage`, `SummaryError`, `SummaryUpdatedAtUtc`).
-- **Comprime o áudio para AAC** (`.m4a`, via `ffmpeg`) e depois **extrai um resumo do áudio
-  (≤ 500 caracteres)** com um modelo de IA leve local (Whisper `tiny`) — as duas etapas em
-  **workers em background**, fora da thread da requisição.
-- Expõe endpoints para consultar os metadados, baixar o arquivo, consultar o resumo e listar tudo.
+  `SummaryLanguage`, `SummaryError`, `SummaryUpdatedAtUtc`) e os do filtro (`FilterStatus`,
+  `FilterError`, `FilterUpdatedAtUtc`, `FilteredStoredFileName`, `FilteredContentType`,
+  `FilteredSizeBytes`, `FilteredUrl`).
+- **Comprime o áudio para AAC** (`.m4a`, via `ffmpeg`), **deriva uma versão filtrada** com realce
+  de voz e a salva como arquivo extra do mesmo id, e **extrai um resumo do áudio
+  (≤ 500 caracteres)** com um modelo de IA leve local (Whisper `tiny`) — tudo em **workers em
+  background**, fora da thread da requisição.
+- Expõe endpoints para consultar os metadados, baixar o arquivo, baixar a versão filtrada,
+  consultar o resumo e listar tudo.
 
 ### Pipeline de processamento (compressão + resumo, em background)
 
@@ -46,6 +51,7 @@ Duas filas limitadas (`Channel<Guid>`) e dois `BackgroundService` fazem o resto:
 ```
 POST → 201 (Pending) | 503 (sem persistência por overload)
    └→ fila de compressão  → ffmpeg → .m4a substitui o original → Completed
+        ├→ filtro (mesmo job) → ffmpeg -af → {id}.filtered.m4a → FilterStatus Completed
         └→ fila de resumo → Whisper → Completed | Failed
 ```
 
@@ -93,7 +99,9 @@ Histórico do raciocínio: [`docs/week2-analysis.md`](docs/week2-analysis.md) (p
 requisição), [`docs/week4-threading-pipeline.md`](docs/week4-threading-pipeline.md) (a compressão
 também sai, e a medição),
 [`docs/week6-frontend-parallel-validation.md`](docs/week6-frontend-parallel-validation.md) (o
-paralelismo no cliente, validando o áudio antes do upload).
+paralelismo no cliente, validando o áudio antes do upload) e
+[`docs/week7-audio-filter-and-preview.md`](docs/week7-audio-filter-and-preview.md) (o filtro
+derivado no servidor e a prévia que toca os dois áudios).
 
 O comparativo exigido pela Atividade #1 está em
 [`docs/activity-1-sequential-vs-parallel-benchmark.md`](docs/activity-1-sequential-vs-parallel-benchmark.md):
@@ -180,6 +188,13 @@ motivo. Ambientes sem `Worker` usam o mesmo validador por um fallback assíncron
 continua valendo como segunda camada — o cliente não substitui o servidor, só evita subir 50 MB para
 receber um `400`. Detalhes e decisões em
 [`docs/week6-frontend-parallel-validation.md`](docs/week6-frontend-parallel-validation.md).
+
+**Cada áudio já processado tem uma barra de prévia.** Ela toca o áudio original — o que
+`GET /api/audios/{id}/download` devolve — e alterna para o **áudio extra com filtros** que o
+servidor derivou, servido por `GET /api/audios/{id}/download/filtered`. A faixa filtrada só fica
+disponível quando o servidor concluiu o filtro; enquanto ele está pendente, ou se falhou, a opção
+aparece desabilitada com o motivo visível em vez de virar um controle morto. Detalhes e decisões em
+[`docs/week7-audio-filter-and-preview.md`](docs/week7-audio-filter-and-preview.md).
 
 O visual é especificado em [`docs/DESIGN.md`](docs/DESIGN.md) — todo valor visual do código resolve
 para um token declarado em `web/app/globals.css`. O Figma de referência está linkado no topo do
@@ -303,6 +318,9 @@ curl http://localhost:5218/api/audios/$ID
 
 # baixar o arquivo
 curl -o baixado.wav http://localhost:5218/api/audios/$ID/download
+
+# baixar a versão filtrada (404 enquanto filterStatus não for "Completed")
+curl -o baixado-filtrado.m4a http://localhost:5218/api/audios/$ID/download/filtered
 
 # listar todos
 curl http://localhost:5218/api/audios
