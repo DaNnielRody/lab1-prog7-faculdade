@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<UploadOptions>(builder.Configuration.GetSection(UploadOptions.SectionName));
 builder.Services.Configure<CompressionOptions>(builder.Configuration.GetSection(CompressionOptions.SectionName));
+builder.Services.Configure<AudioFilterOptions>(builder.Configuration.GetSection(AudioFilterOptions.SectionName));
 builder.Services.Configure<ProcessingOptions>(builder.Configuration.GetSection(ProcessingOptions.SectionName));
 builder.Services.Configure<SummarizationOptions>(builder.Configuration.GetSection(SummarizationOptions.SectionName));
 builder.Services.Configure<CorsOptions>(builder.Configuration.GetSection(CorsOptions.SectionName));
@@ -47,6 +48,7 @@ builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connect
 
 builder.Services.AddSingleton<IFileStore, LocalFileStore>();
 builder.Services.AddSingleton<IAudioCompressor, FfmpegAudioCompressor>();
+builder.Services.AddSingleton<IAudioFilter, FfmpegAudioFilter>();
 builder.Services.AddScoped<AudioFileValidator>();
 
 builder.Services.AddSingleton<IDbWriteGate, DbWriteGate>();
