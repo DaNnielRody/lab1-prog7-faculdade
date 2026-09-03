@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_AUDIO_SIZE_BYTES, validateAudioFile } from "@/lib/audioValidation";
 import {
+  MAX_AUDIO_SIZE_BYTES,
+  validateAudioBytes,
+  validateAudioFile,
+} from "@/lib/audioValidation";
+import {
+  AUDIO_VALIDATION_MODE,
   WORKER_TIMEOUT_MS,
   validateAudioFileInBackground,
 } from "@/lib/audioValidationClient";
@@ -20,6 +25,17 @@ function audioFile(
 }
 
 describe("validateAudioFile", () => {
+  it("exposes a synchronous core for the sequential baseline", () => {
+    expect(
+      validateAudioBytes({
+        name: "aula.mp3",
+        type: "audio/mpeg",
+        size: MP3_SIGNATURE.byteLength,
+        bytes: MP3_SIGNATURE,
+      }),
+    ).toEqual({ valid: true });
+  });
+
   it("accepts an audio whose extension, MIME type, size and signature agree", async () => {
     await expect(validateAudioFile(audioFile())).resolves.toEqual({ valid: true });
   });
@@ -106,6 +122,20 @@ describe("validateAudioFileInBackground", () => {
 
     expect(settled).toBe(false);
     await expect(validation).resolves.toEqual({ valid: true });
+  });
+
+  it("supports an explicit sequential mode without constructing a Worker", async () => {
+    const WorkerSpy = vi.fn();
+    vi.stubGlobal("Worker", WorkerSpy);
+
+    await expect(validateAudioFileInBackground(audioFile(), undefined, "sequential")).resolves.toEqual({
+      valid: true,
+    });
+    expect(WorkerSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps parallel as the default configured mode", () => {
+    expect(AUDIO_VALIDATION_MODE).toBe("parallel");
   });
 
   it("reports a Worker runtime failure and terminates it", async () => {

@@ -43,13 +43,21 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
         var running = new List<Task>();
 
         _logger.LogInformation(
-            "Worker de resumo iniciado (endpoint: {Endpoint}, concorrência: {MaxConcurrency}, limite: {MaxChars} caracteres).",
-            _options.Endpoint, maxConcurrency, _options.EffectiveMaxSummaryChars);
+            "Worker de resumo iniciado (endpoint: {Endpoint}, modo: {ExecutionMode}, concorrência: {MaxConcurrency}, limite: {MaxChars} caracteres).",
+            _options.Endpoint, _options.ExecutionMode, maxConcurrency, _options.EffectiveMaxSummaryChars);
 
         try
         {
             await foreach (var audioId in _queue.ReadAllAsync(stoppingToken))
             {
+                if (_options.ExecutionMode == AudioExecutionMode.Sequential)
+                {
+                    // The sequential baseline has no outstanding task and no gate wait: one
+                    // summary is completely finished before the next queue item is read.
+                    await ProcessGuardedAsync(audioId, gate: null, stoppingToken);
+                    continue;
+                }
+
                 await gate.WaitAsync(stoppingToken);
                 running.Add(ProcessGuardedAsync(audioId, gate, stoppingToken));
                 running.RemoveAll(task => task.IsCompleted);
@@ -65,7 +73,7 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
         }
     }
 
-    private async Task ProcessGuardedAsync(Guid audioId, SemaphoreSlim gate, CancellationToken ct)
+    private async Task ProcessGuardedAsync(Guid audioId, SemaphoreSlim? gate, CancellationToken ct)
     {
         try
         {
@@ -81,7 +89,7 @@ public sealed class AudioSummaryBackgroundService : BackgroundService
         }
         finally
         {
-            gate.Release();
+            gate?.Release();
         }
     }
 

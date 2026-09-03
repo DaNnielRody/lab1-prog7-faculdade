@@ -1,9 +1,16 @@
 import {
+  validateAudioFileSequential,
   validateAudioFile,
   type AudioValidationRequest,
   type AudioValidationResponse,
   type AudioValidationResult,
 } from "@/lib/audioValidation";
+
+export type AudioValidationExecutionMode = "parallel" | "sequential";
+
+const configuredMode = process.env.NEXT_PUBLIC_AUDIO_VALIDATION_MODE?.trim().toLowerCase();
+export const AUDIO_VALIDATION_MODE: AudioValidationExecutionMode =
+  configuredMode === "sequential" ? "sequential" : "parallel";
 
 export const WORKER_FAILURE_MESSAGE =
   "O validador paralelo de áudio falhou. Selecione o arquivo novamente.";
@@ -30,8 +37,10 @@ async function validateWithAsyncFallback(
 export function validateAudioFileInBackground(
   file: File,
   signal?: AbortSignal,
+  mode: AudioValidationExecutionMode = AUDIO_VALIDATION_MODE,
 ): Promise<AudioValidationResult> {
   if (signal?.aborted) return Promise.reject(abortError());
+  if (mode === "sequential") return validateWithSequentialFallback(file, signal);
   if (typeof Worker === "undefined") return validateWithAsyncFallback(file, signal);
 
   let worker: Worker;
@@ -92,4 +101,14 @@ export function validateAudioFileInBackground(
       settle(() => reject(new Error(WORKER_FAILURE_MESSAGE)));
     }
   });
+}
+
+async function validateWithSequentialFallback(
+  file: File,
+  signal?: AbortSignal,
+): Promise<AudioValidationResult> {
+  if (signal?.aborted) throw abortError();
+  const result = await validateAudioFileSequential(file);
+  if (signal?.aborted) throw abortError();
+  return result;
 }

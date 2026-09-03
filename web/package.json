@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "vitest",
     "test:run": "vitest --run",
+    "benchmark:client": "vitest --run --config vitest.benchmark.config.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

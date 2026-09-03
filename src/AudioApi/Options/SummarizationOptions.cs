@@ -4,6 +4,12 @@ public class SummarizationOptions
 {
     public const string SectionName = "Summarization";
 
+    /// <summary>
+    /// Parallel is the default. Sequential is used by the benchmark baseline so that no summary
+    /// jobs overlap; the queue and persisted state remain identical in both modes.
+    /// </summary>
+    public AudioExecutionMode ExecutionMode { get; set; } = AudioExecutionMode.Parallel;
+
     public const int MaxSummaryCharsCeiling = 500;
 
     public bool Enabled { get; set; }

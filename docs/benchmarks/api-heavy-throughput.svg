@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
+  <title id="title">Throughput mediano da API por número de usuários</title>
+  <desc id="desc">Comparação entre jobs por segundo nos modos paralelo e sequencial no workload pesado de 10 segundos. A diferença relevante aparece com 16 usuários.</desc>
+  <style>
+    .title { font: 700 20px sans-serif; fill: #172033; }
+    .subtitle { font: 13px sans-serif; fill: #536174; }
+    .axis { font: 12px sans-serif; fill: #536174; }
+    .grid { stroke: #dce2ea; stroke-width: 1; }
+    .axis-line { stroke: #6b7788; stroke-width: 1.5; }
+    .parallel { fill: none; stroke: #1565c0; stroke-width: 3; }
+    .sequential { fill: none; stroke: #e67e22; stroke-width: 3; }
+    .parallel-point { fill: #1565c0; stroke: #fff; stroke-width: 2; }
+    .sequential-point { fill: #e67e22; stroke: #fff; stroke-width: 2; }
+    .legend { font: 13px sans-serif; fill: #303b4d; }
+  </style>
+  <rect width="900" height="430" fill="#fff"/>
+  <text class="title" x="72" y="30">Throughput mediano — workload pesado (10 s)</text>
+  <text class="subtitle" x="72" y="51">Jobs concluídos por segundo; medianas de 3 rodadas por nível</text>
+
+  <line class="grid" x1="78" y1="350" x2="820" y2="350"/>
+  <line class="grid" x1="78" y1="282.5" x2="820" y2="282.5"/>
+  <line class="grid" x1="78" y1="215" x2="820" y2="215"/>
+  <line class="grid" x1="78" y1="147.5" x2="820" y2="147.5"/>
+  <line class="grid" x1="78" y1="80" x2="820" y2="80"/>
+  <line class="axis-line" x1="78" y1="80" x2="78" y2="350"/>
+  <line class="axis-line" x1="78" y1="350" x2="820" y2="350"/>
+
+  <text class="axis" x="45" y="354">0</text>
+  <text class="axis" x="45" y="286">3</text>
+  <text class="axis" x="38" y="219">6</text>
+  <text class="axis" x="38" y="152">9</text>
+  <text class="axis" x="31" y="84">12</text>
+  <text class="axis" transform="translate(16 285) rotate(-90)">jobs/s</text>
+
+  <polyline class="parallel" points="120,200.758 280,202.423 440,200.893 600,201.545 760,130.473"/>
+  <polyline class="sequential" points="120,202.540 280,212.368 440,202.850 600,201.118 760,197.180"/>
+
+  <circle class="parallel-point" cx="120" cy="200.758" r="5"/>
+  <circle class="parallel-point" cx="280" cy="202.423" r="5"/>
+  <circle class="parallel-point" cx="440" cy="200.893" r="5"/>
+  <circle class="parallel-point" cx="600" cy="201.545" r="5"/>
+  <circle class="parallel-point" cx="760" cy="130.473" r="5"/>
+  <circle class="sequential-point" cx="120" cy="202.540" r="5"/>
+  <circle class="sequential-point" cx="280" cy="212.368" r="5"/>
+  <circle class="sequential-point" cx="440" cy="202.850" r="5"/>
+  <circle class="sequential-point" cx="600" cy="201.118" r="5"/>
+  <circle class="sequential-point" cx="760" cy="197.180" r="5"/>
+
+  <text class="axis" x="116" y="372">1</text>
+  <text class="axis" x="276" y="372">2</text>
+  <text class="axis" x="436" y="372">4</text>
+  <text class="axis" x="596" y="372">8</text>
+  <text class="axis" x="754" y="372">16</text>
+  <text class="axis" x="360" y="399">usuários concorrentes</text>
+
+  <line class="parallel" x1="115" y1="414" x2="145" y2="414"/>
+  <circle class="parallel-point" cx="130" cy="414" r="5"/>
+  <text class="legend" x="153" y="418">Paralelo/assíncrono</text>
+  <line class="sequential" x1="310" y1="414" x2="340" y2="414"/>
+  <circle class="sequential-point" cx="325" cy="414" r="5"/>
+  <text class="legend" x="348" y="418">Sequencial (sem overlap)</text>
+</svg>
