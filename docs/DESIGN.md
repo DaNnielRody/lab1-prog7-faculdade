@@ -604,12 +604,71 @@ compressing*; only the copy and the literal word change. Copy:
 value. **Neutral, never red** — `Disabled` means the server was configured not to summarize, which
 is not an outcome (§2, §8).
 
+#### Playing a processed audio in place — `{component.preview-bar}`
+
+Ticket 03 (#28) closes the gap §11 named: a processed audio had no way to be heard from inside the
+thread. Every message row whose backing `AudioFileDto` carries `processingStatus === "Completed"`
+gets one `{component.preview-bar}`, **live and history alike** — the same three bubble variants that
+already render that state host it, and no fourth variant is invented:
+
+- **`{component.bubble-summary}`** (`summaryStatus === "Completed"`) — the preview bar sits after the
+  footer row (language badge, character count, and the provenance caption where present), separated
+  from it by the bubble's own `{spacing.2}` internal stack gap. No new spacing token: this is the
+  same gap that already separates every child of a `{component.bubble}`.
+- **`{component.bubble-error}`** (`summaryStatus === "Failed"`) — the preview bar sits after the
+  `{component.code-line}` carrying `summaryError`, at the same `{spacing.2}` gap. The audio itself
+  compressed fine; only the summary failed, so playback is not the thing that is broken here and
+  stays offered.
+- **`{component.bubble}`** neutral (`summaryStatus` is `Disabled` or still queued) — same placement,
+  same gap.
+
+"Original" plays what `GET /api/audios/{id}/download` serves today — the compressed AAC, unchanged.
+"Com filtro" plays `GET /api/audios/{id}/download/filtered`, gated by `filterStatus` exactly as
+`{component.track-selector-unavailable}` specifies above. Both are **the item's own bytes**, never
+the locally selected file `{component.player-bar}` holds — which is why this is a new component and
+not a prop on the old one, and why `{component.player-bar}` itself does not change (out of scope,
+PRD).
+
+At `{bp.mobile}`, `{component.preview-bar}` follows the rule §9 already states for the player: the
+waveform hides, and the bar keeps play + elapsed/duration + `{component.track-selector}` only. It
+never wraps to two rows — a bubble that must scroll horizontally to show its own transport is worse
+than a hidden waveform.
+
 **Announcer split.** The screen has exactly two live regions and they never carry the same content:
 the thread (`role="log"`, `aria-live="polite"`) announces everything that is a message — the
 session's transitions and the history rows alike, since they are the same rows — and
 `{component.toast}` (`role="status"`) announces screen-level transient notices that no message row
 exists for. Two polite regions queue rather than collide; what must never happen is the same fact
 spoken by both, which is why a failed history fetch lives in the toast and never becomes a message.
+
+**`{component.preview-bar}` and the announcer split.** `{component.preview-bar}` mounts inside a
+message row the thread already announced once — it introduces no second announcement of that row.
+Its own transport (the play/pause label swap, elapsed ticking on every `timeupdate`, the waveform's
+bar-by-bar progress) sits under an explicit `aria-live="off"` on the bar's own container: without
+that override, those per-second DOM mutations would requeue inside the ancestor `role="log"`
+`aria-live="polite"` thread and read "0:01, 0:02, 0:03…" down the whole conversation — the same
+flooding §7 already forbids for the toast/thread split, just from a different source, and it **must
+not** happen. Selecting a track is conveyed by the radio's own selection state (`aria-checked`), not
+by a second spoken sentence — assistive tech already reports a selection change on the control that
+has focus, and re-announcing it through the log would be the same fact spoken twice (§8 Don't 11's
+sibling rule for live regions). The two disabled-reason captions are static content, read when the
+"Com filtro" radio receives focus via `aria-describedby`; they are never pushed as a live update.
+
+*Accessible names.*
+
+- Play/pause: `aria-label` "Reproduzir áudio original" / "Pausar áudio original", or "…áudio com
+  filtro" when that track is selected — the same naming pattern `{component.player-bar}` already
+  uses, qualified by track so two preview bars open in a long history never collide in a screen
+  reader's control list.
+- Track options: `role="radiogroup"` `aria-label` "Fonte de áudio" wraps two `role="radio"` elements
+  whose visible label ("Original" / "Com filtro") is their accessible name. The selected option
+  carries `aria-checked="true"`; the other `aria-checked="false"`. When "Com filtro" is unavailable it
+  also carries `aria-disabled="true"` and `aria-describedby` pointing at its reason caption, so the
+  reason is announced the moment focus lands there, not only shown.
+- Keyboard: the radiogroup follows the standard roving-tabindex pattern — Tab enters and exits the
+  group as one stop; Left/Right (and Up/Down) move the selection between the two options. A disabled
+  "Com filtro" is skipped by arrow navigation, same as any disabled radio in a native group — the
+  control never becomes a second stop a keyboard user can tab into where nothing happens.
 
 ### Status & Badges
 
@@ -741,6 +800,54 @@ from the file's own peaks when available, never re-randomized between renders of
 
 **`{component.chip-speed}`** — pill, `{colors.surface.canvas}`, 1px `{colors.surface.hairline}`,
 `{type.mono}` in `{colors.text.secondary}`. Values `1x`, `1.5x`, `2x`.
+
+**`{component.preview-bar}`** — the per-item playback control inside a processed-audio message, not
+a second `{component.player-bar}`. Background `{colors.surface.canvas}`, 1px
+`{colors.surface.hairline}`, radius `{rounded.md}`, padding `{spacing.3}`, gap `{spacing.4}`:
+`{component.button-play}`, elapsed `{type.mono}`, `{component.waveform}`, duration `{type.mono}`,
+`{component.track-selector}` — the same anatomy and the same tokens as `{component.player-card}`,
+with the speed chip swapped for the track selector, because this bar has two sources to choose
+between and no playback rate to show. It lives *inside* a message bubble, at the bubble's own width,
+never docked to the viewport — the one thing that tells it apart from `{component.player-bar}` at a
+glance is that it scrolls with the thread. Elapsed and duration always describe the **currently
+selected track's own** `<audio>` element, the same `onLoadedMetadata` / `onTimeUpdate` pattern
+`{component.player-bar}` already uses, because "Original" and "Com filtro" are two different files
+that can report two different durations. `invented, unverified` — no Figma frame covers a per-item
+preview; §11 traceability applies until a frame does.
+
+**`{component.track-selector}`** — a two-option, mutually-exclusive pill group, container
+`{colors.surface.muted}`, radius `{rounded.full}`, padding `{spacing.1}`; each option `{type.label}`,
+padding `{spacing.1}` `{spacing.3}`, radius `{rounded.full}`. Selected option: `{colors.brand.soft}`
+background, `{colors.brand.text}` label — the exact pair §2 already measures at 5.43:1 (Deep Orange
+on Orange Wash), so it costs no new contrast measurement. Unselected option: transparent,
+`{colors.text.secondary}` label. Options read "Original" and "Com filtro" verbatim — the visible
+label *is* the accessible name (§8 Don't 11: name the action, not the mood).
+
+**`{component.track-selector-unavailable}`** — the "Com filtro" option only, never the whole
+control: `{component.player-card-disabled}`'s 55% opacity treatment applied to that one pill,
+`{colors.text.secondary}` label unchanged (it can never earn the brand pair while it cannot be
+selected), cursor `not-allowed`, `aria-disabled="true"`. Two triggers share this one treatment and
+each prints a visible reason directly under the selector at `{spacing.1}` gap:
+
+| Trigger | Reason (`{type.caption}` `{colors.text.secondary}`) | Literal word |
+|---|---|---|
+| `filterStatus` is `Pending` or `Processing` | "Filtro em processamento" | `{type.mono}` `filterStatus` value, right-aligned — the same collapse §2 already uses for `ProcessingStatus` `Pending`/`Processing`: one UI treatment for two API states, with the literal word still telling them apart for anyone who reads it |
+| `filterStatus` is `Failed` | "Falha ao gerar o filtro" | then a `{component.code-line}` carrying the raw `filterError`, or "O servidor não informou o motivo." when the server sent none — the identical fallback string used by *history compression failed* and *history summary failed* |
+
+**States.**
+
+| State | What changes | Token |
+|---|---|---|
+| Idle | Both tracks available, "Original" selected, paused, elapsed `0:00` | `{type.mono}` |
+| Playing | Play glyph swaps to the pause glyph (❚❚, same glyph pair as `{component.player-bar}`), waveform advances | `{component.waveform}` played bars in `{colors.brand.primary}` |
+| Track switching | Selecting the other radio swaps the `<audio>` source, pauses playback and resets elapsed to `0:00` — the same reset `{component.player-bar}` already runs on a source change. A track never auto-resumes playing into the new source unasked; switching is always predictable, never surprising | `{component.waveform}` resets to 0 progress |
+| "Com filtro" pending | "Com filtro" is `{component.track-selector-unavailable}`, reason "Filtro em processamento" | `{component.player-card-disabled}` 55% opacity, on the pill only |
+| "Com filtro" failed | "Com filtro" is `{component.track-selector-unavailable}`, reason plus the raw `filterError` | `{component.player-card-disabled}` 55% opacity, `{component.code-line}` |
+
+The waveform stays exactly what §7 already says it is: decorative-but-proportional, driven by
+playback progress, never derived from real peaks — the API exposes none.
+`{component.preview-bar}` does not change that; it is a **second consumer** of the same
+`{component.waveform}`, not a new claim about the data.
 
 ### Overlays
 
@@ -1138,12 +1245,18 @@ scale below 20px.
   have no dedicated dialog and surface through `{component.bubble-error}`.
 - **Multi-file / multi-session behavior is only half designed.** The thread still models exactly
   one *live* audio at a time, and queueing several uploads has no design. Reading back previous
-  audios **is** designed now — §7 Thread, History messages — but only as read-only messages: there
-  is no way to reopen a past audio in the thread, no way to play it (the player holds the locally
-  selected file), and no way to reprocess it. Those need endpoints the API does not have. The
-  history is also rendered whole: every audio `GET /api/audios` returns becomes a row, so at a few
-  hundred audios the conversation is a very long scroll. A cap, a "carregar mais" or a date break is
-  undesigned — and, this time, must be checked against the Figma before it is specified.
+  audios **is** designed now — §7 Thread, History messages — but only as read-only messages, with one
+  exception: **playback is no longer one of the missing pieces.** Ticket 03 (#28) closed it —
+  `{component.preview-bar}` plays a history row's own bytes (original, and filtered once
+  `filterStatus` is `Completed`) in place, so "the player holds the locally selected file" is no
+  longer true of the thread as a whole, only of `{component.player-bar}` specifically, which still
+  does exactly that and is unchanged (out of scope, PRD). What is still missing: there is no way to
+  **reopen** a past audio into the live session flow (re-drive it through the
+  upload/processing/summary steps as if newly selected), and no way to **reprocess** it — both need
+  endpoints the API does not have. The history is also rendered whole: every audio `GET
+  /api/audios` returns becomes a row, so at a few hundred audios the conversation is a very long
+  scroll. A cap, a "carregar mais" or a date break is undesigned — and, this time, must be checked
+  against the Figma before it is specified.
 - **`docs/DESIGN.md` is not traceable to its source frames.** No entry in this document names the
   Figma node it derives from, so a component invented at a desk and a component read off a frame are
   indistinguishable once written down — both are prose in the same voice. That is not hypothetical:
@@ -1189,4 +1302,6 @@ scale below 20px.
   underneath its scrim. That state is specified in §5 Stacking and verified by nobody's eye.
 - **The waveform has no real data source.** The API exposes no peak data, so the drawn bars are
   proportional decoration. §7 forbids re-randomizing them, but the derivation from actual audio
-  peaks is not specified.
+  peaks is not specified. `{component.preview-bar}` (ticket 03, #28) is a second consumer of the
+  same decorative, progress-driven `{component.waveform}` and inherits this gap unchanged — it does
+  not specify a real waveform for either track.
