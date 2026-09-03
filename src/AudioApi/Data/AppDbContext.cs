@@ -27,6 +27,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SummaryStatus).IsRequired().HasConversion<string>().HasMaxLength(16);
             entity.Property(e => e.SummaryLanguage).HasMaxLength(16);
             entity.Property(e => e.SummaryError).HasMaxLength(JobError.MaxChars);
+            entity.Property(e => e.FilterStatus).IsRequired().HasConversion<string>().HasMaxLength(16);
+            entity.Property(e => e.FilterError).HasMaxLength(JobError.MaxChars);
+            entity.Property(e => e.FilteredStoredFileName).HasMaxLength(512);
+            entity.Property(e => e.FilteredContentType).HasMaxLength(256);
+            entity.Property(e => e.FilteredUrl).HasMaxLength(2048);
         });
     }
 }

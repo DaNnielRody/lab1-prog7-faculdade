@@ -32,10 +32,24 @@ public class AudioFile
 
     public DateTime? SummaryUpdatedAtUtc { get; set; }
 
+    public FilterStatus FilterStatus { get; set; } = FilterStatus.Pending;
+
+    public string? FilterError { get; set; }
+
+    public DateTime? FilterUpdatedAtUtc { get; set; }
+
+    public string? FilteredStoredFileName { get; set; }
+
+    public string? FilteredContentType { get; set; }
+
+    public long? FilteredSizeBytes { get; set; }
+
+    public string? FilteredUrl { get; set; }
+
     /// <summary>
-    /// A compressão falhou: sem <c>.m4a</c> nunca haverá o que resumir, então o resumo já nasce
-    /// falho com o mesmo motivo. Os dois caminhos que podem falhar a compressão — fila cheia no
-    /// upload e erro do worker — escrevem exatamente este estado.
+    /// A compressão falhou: sem <c>.m4a</c> nunca haverá o que resumir nem o que filtrar, então o
+    /// resumo e o filtro já nascem falhos com o mesmo motivo. Os dois caminhos que podem falhar a
+    /// compressão — fila cheia no upload e erro do worker — escrevem exatamente este estado.
     /// </summary>
     public void MarkProcessingFailed(string reason)
     {
@@ -48,5 +62,9 @@ public class AudioFile
         SummaryStatus = SummaryStatus.Failed;
         SummaryError = reason;
         SummaryUpdatedAtUtc = now;
+
+        FilterStatus = FilterStatus.Failed;
+        FilterError = reason;
+        FilterUpdatedAtUtc = now;
     }
 }
