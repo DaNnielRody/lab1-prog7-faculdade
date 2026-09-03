@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using AudioApi.Options;
 using Microsoft.Extensions.Options;
 
@@ -17,101 +16,32 @@ public class FfmpegAudioCompressor : IAudioCompressor
 
     public async Task<CompressedAudio> CompressToAacAsync(Stream input, CancellationToken ct = default)
     {
-        var inputPath = Path.GetTempFileName();
-        var outputPath = Path.ChangeExtension(Path.GetTempFileName(), ".m4a");
+        var result = await FfmpegProcessRunner.RunAsync(
+            _options.FfmpegPath,
+            input,
+            (inputPath, outputPath) =>
+            [
+                "-y", "-i", inputPath, "-vn",
+                "-c:a", "aac", "-b:a", $"{_options.BitrateKbps}k",
+                "-movflags", "+faststart", outputPath,
+            ],
+            ".m4a",
+            _logger,
+            ct);
 
-        try
+        if (result.ExitCode != 0)
         {
-            await using (var inputFile = new FileStream(inputPath, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                await input.CopyToAsync(inputFile, ct);
-            }
-
-            var inputSizeBytes = new FileInfo(inputPath).Length;
-            var stopwatch = Stopwatch.StartNew();
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = _options.FfmpegPath,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            startInfo.ArgumentList.Add("-y");
-            startInfo.ArgumentList.Add("-i");
-            startInfo.ArgumentList.Add(inputPath);
-            startInfo.ArgumentList.Add("-vn");
-            startInfo.ArgumentList.Add("-c:a");
-            startInfo.ArgumentList.Add("aac");
-            startInfo.ArgumentList.Add("-b:a");
-            startInfo.ArgumentList.Add($"{_options.BitrateKbps}k");
-            startInfo.ArgumentList.Add("-movflags");
-            startInfo.ArgumentList.Add("+faststart");
-            startInfo.ArgumentList.Add(outputPath);
-
-            using var process = new Process { StartInfo = startInfo };
-            process.Start();
-
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            try
-            {
-                await process.WaitForExitAsync(ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(CancellationToken.None);
-                }
-                throw;
-            }
-            await stderrTask;
-            await stdoutTask;
-
-            stopwatch.Stop();
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError(
-                    "Falha ao comprimir áudio para AAC: ffmpeg saiu com código {ExitCode} em {ElapsedMs}ms.",
-                    process.ExitCode, stopwatch.ElapsedMilliseconds);
-                throw new AudioCompressionException(
-                    $"O ffmpeg não conseguiu decodificar ou comprimir o áudio (código {process.ExitCode}).");
-            }
-
-            var outputSizeBytes = new FileInfo(outputPath).Length;
-            _logger.LogInformation(
-                "Áudio comprimido para AAC em {ElapsedMs}ms (entrada: {InputBytes} bytes, saída: {OutputBytes} bytes, taxa: {BitrateKbps}kbps)",
-                stopwatch.ElapsedMilliseconds, inputSizeBytes, outputSizeBytes, _options.BitrateKbps);
-
-            var outputStream = new FileStream(
-                outputPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 4096,
-                FileOptions.DeleteOnClose);
-
-            return new CompressedAudio(outputStream, ".m4a", "audio/mp4");
+            _logger.LogError(
+                "Falha ao comprimir áudio para AAC: ffmpeg saiu com código {ExitCode} em {ElapsedMs}ms.",
+                result.ExitCode, result.ElapsedMs);
+            throw new AudioCompressionException(
+                $"O ffmpeg não conseguiu decodificar ou comprimir o áudio (código {result.ExitCode}).");
         }
-        finally
-        {
-            DeleteTemporaryFile(outputPath);
-            DeleteTemporaryFile(inputPath);
-        }
-    }
 
-    private void DeleteTemporaryFile(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning("Não foi possível remover arquivo temporário ({ExceptionType}).", ex.GetType().Name);
-        }
+        _logger.LogInformation(
+            "Áudio comprimido para AAC em {ElapsedMs}ms (entrada: {InputBytes} bytes, saída: {OutputBytes} bytes, taxa: {BitrateKbps}kbps)",
+            result.ElapsedMs, result.InputSizeBytes, result.OutputSizeBytes, _options.BitrateKbps);
+
+        return new CompressedAudio(result.OutputStream!, ".m4a", "audio/mp4");
     }
 }
