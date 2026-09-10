@@ -7,6 +7,7 @@ import { FileCard } from "@/components/ui/FileCard";
 import { MessageRow } from "@/components/ui/MessageRow";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { cn } from "@/components/ui/cn";
+import { PreviewBar } from "./PreviewBar";
 import type { AudioFileDto, AudioSummaryDto, Phase, SelectedFile, ThreadMessage } from "@/lib/types";
 import { fileMeta, formatTimestamp, summaryFacts } from "./format";
 
@@ -97,6 +98,8 @@ export function Thread({
         </MessageRow>
       );
     }
+    // processingStatus is guaranteed "Completed" from here on: the two branches above already
+    // returned for "Pending"/"Processing"/"Failed".
 
     if (item.summaryStatus === "Completed") {
       const past = summaryFacts(null, item);
@@ -111,6 +114,7 @@ export function Thread({
                 {past.length} / {past.maxLength} caracteres
               </span>
             </div>
+            {item.processingStatus === "Completed" ? <PreviewBar audio={item} /> : null}
           </Bubble>
         </MessageRow>
       );
@@ -124,6 +128,7 @@ export function Thread({
               Não foi possível resumir {name}
             </span>
             <CodeLine>{item.summaryError ?? "O servidor não informou o motivo."}</CodeLine>
+            {item.processingStatus === "Completed" ? <PreviewBar audio={item} /> : null}
           </Bubble>
         </MessageRow>
       );
@@ -144,6 +149,7 @@ export function Thread({
               {item.summaryStatus}
             </span>
           </div>
+          {item.processingStatus === "Completed" ? <PreviewBar audio={item} /> : null}
         </Bubble>
       </MessageRow>
     );

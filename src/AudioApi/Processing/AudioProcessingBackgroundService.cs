@@ -126,6 +126,7 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var fileStore = scope.ServiceProvider.GetRequiredService<IFileStore>();
         var compressor = scope.ServiceProvider.GetRequiredService<IAudioCompressor>();
+        var audioFilter = scope.ServiceProvider.GetRequiredService<IAudioFilter>();
         var summaryQueue = scope.ServiceProvider.GetRequiredService<ISummaryQueue>();
         var summarizationOptions = scope.ServiceProvider.GetRequiredService<IOptions<SummarizationOptions>>().Value;
 
@@ -222,6 +223,11 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
                 "Compressão de {AudioId} concluída em {ElapsedMs}ms ({SizeBytes} bytes).",
                 audioId, stopwatch.ElapsedMilliseconds, stored.SizeBytes);
 
+            // Filtro de realce de voz roda depois do commit da compressão, sobre o áudio já
+            // comprimido. Isolado em seu próprio try/catch: uma falha aqui só terminaliza
+            // FilterStatus, nunca regride ProcessingStatus nem afeta a sumarização.
+            await ApplyFilterAsync(audioId, entity, db, fileStore, audioFilter, baseUrl, ct);
+
             if (summarizationOptions.Enabled && !summaryQueue.TryEnqueue(audioId))
             {
                 const string reason = "A fila de sumarização está cheia; o resumo não foi admitido.";
@@ -244,6 +250,131 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
             await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
         }
     }
+
+    /// <summary>
+    /// Roda o filtro de realce de voz sobre o áudio já comprimido e persiste o resultado. O corpo
+    /// inteiro — inclusive o commit inicial de <see cref="FilterStatus.Processing"/> — está coberto:
+    /// qualquer exceção que não seja <see cref="OperationCanceledException"/> (conhecida como
+    /// <see cref="AudioFilterException"/>, arquivo ausente, I/O, ou qualquer outra, como uma falha de
+    /// banco) só terminaliza <see cref="FilterStatus"/> como Failed — nunca propaga para o catch de
+    /// compressão do chamador, que regrediria <see cref="ProcessingStatus"/> ou derrubaria o worker.
+    /// Cancelamento continua propagando, para o shutdown do host seguir seu caminho normal.
+    /// </summary>
+    private async Task ApplyFilterAsync(
+        Guid audioId,
+        AudioFile entity,
+        AppDbContext db,
+        IFileStore fileStore,
+        IAudioFilter audioFilter,
+        string baseUrl,
+        CancellationToken ct)
+    {
+        var filterStopwatch = Stopwatch.StartNew();
+        try
+        {
+            entity.FilterStatus = FilterStatus.Processing;
+            entity.FilterUpdatedAtUtc = DateTime.UtcNow;
+            await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
+
+            var content = await fileStore.OpenReadAsync(entity.StoredFileName, entity.ContentType, ct);
+            if (content is null)
+            {
+                throw new FileNotFoundException("O arquivo do áudio não está mais presente no file store para o filtro.");
+            }
+
+            FilteredAudio filtered;
+            await using (content.Stream)
+            {
+                filtered = await audioFilter.ApplyAsync(content.Stream, ct);
+            }
+
+            StoredFile filteredStored;
+            await using (filtered.Stream)
+            {
+                filteredStored = await fileStore.SaveAsync(
+                    audioId, ".filtered" + filtered.Extension, filtered.Stream, baseUrl, ct);
+            }
+
+            filterStopwatch.Stop();
+
+            entity.FilteredStoredFileName = filteredStored.StoredFileName;
+            entity.FilteredContentType = filtered.ContentType;
+            entity.FilteredSizeBytes = filteredStored.SizeBytes;
+            entity.FilteredUrl = $"{baseUrl.TrimEnd('/')}/api/audios/{audioId}/download/filtered";
+            entity.FilterStatus = FilterStatus.Completed;
+            entity.FilterError = null;
+            entity.FilterUpdatedAtUtc = DateTime.UtcNow;
+
+            try
+            {
+                await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
+            }
+            catch
+            {
+                // Espelha a compensação da compressão: sem o commit, o arquivo filtrado é órfão.
+                try
+                {
+                    await fileStore.DeleteAsync(filteredStored.StoredFileName, CancellationToken.None);
+                }
+                catch (Exception cleanupException) when (IsExpectedFileFailure(cleanupException))
+                {
+                    _logger.LogCritical(
+                        "Não foi possível compensar a saída filtrada de {AudioId} após falha de banco ({ExceptionType}).",
+                        audioId, cleanupException.GetType().Name);
+                }
+
+                throw;
+            }
+
+            _logger.LogInformation(
+                "Filtro de {AudioId} concluído em {ElapsedMs}ms ({SizeBytes} bytes).",
+                audioId, filterStopwatch.ElapsedMilliseconds, filteredStored.SizeBytes);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelamento não é falha de item: propaga para o chamador tratar como shutdown do
+            // host, exatamente como antes desta reestruturação.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            filterStopwatch.Stop();
+
+            if (IsExpectedFilterFailure(ex))
+            {
+                _logger.LogWarning(
+                    "Falha conhecida {ExceptionType} ao filtrar {AudioId} após {ElapsedMs}ms.",
+                    ex.GetType().Name, audioId, filterStopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                // Fora da taxonomia conhecida (ex.: DbUpdateException do commit): ainda assim isolado
+                // aqui. O invariante do filtro é mais rígido que o da compressão — mesmo uma falha
+                // inesperada não pode regredir ProcessingStatus nem derrubar o worker.
+                _logger.LogCritical(
+                    "Falha inesperada {ExceptionType} ao filtrar {AudioId}; o filtro foi isolado.",
+                    ex.GetType().Name, audioId);
+            }
+
+            entity.FilterStatus = FilterStatus.Failed;
+            entity.FilterError = JobError.Clamp(ex.Message);
+            entity.FilterUpdatedAtUtc = DateTime.UtcNow;
+
+            try
+            {
+                await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), CancellationToken.None);
+            }
+            catch (Exception persistException)
+            {
+                _logger.LogCritical(
+                    "Não foi possível terminalizar FilterStatus de {AudioId} após falha ({ExceptionType}).",
+                    audioId, persistException.GetType().Name);
+            }
+        }
+    }
+
+    private static bool IsExpectedFilterFailure(Exception ex) =>
+        ex is AudioFilterException or FileNotFoundException or IOException or UnauthorizedAccessException;
 
     private static bool IsExpectedItemFailure(Exception ex) =>
         ex is AudioCompressionException or FileNotFoundException;
@@ -287,6 +418,32 @@ public sealed class AudioProcessingBackgroundService : BackgroundService
         {
             await _writeGate.WriteAsync(token => db.SaveChangesAsync(token), ct);
             _logger.LogInformation("Recuperados {JobCount} jobs de compressão interrompidos.", unfinished.Count);
+        }
+
+        // ApplyFilterAsync agora comita FilterStatus.Processing antes de rodar o filtro, espelhando
+        // ProcessAsync. Um shutdown do host enquanto o filtro estava rodando (ou antes de começar)
+        // deixa a linha presa em Pending ou Processing para sempre, já que ProcessingStatus está
+        // Completed: a linha nunca reentra na fila acima, e nada mais chama ApplyFilterAsync de
+        // novo para ela. Recupera essas linhas do mesmo jeito — direto, já que só o passo de
+        // filtro (não uma recompressão completa) é devido.
+        var unfinishedFilters = await db.AudioFiles
+            .Where(audio => audio.ProcessingStatus == ProcessingStatus.Completed
+                && (audio.FilterStatus == FilterStatus.Pending
+                    || audio.FilterStatus == FilterStatus.Processing))
+            .OrderBy(audio => audio.CreatedAtUtc)
+            .ToListAsync(ct);
+
+        if (unfinishedFilters.Count > 0)
+        {
+            var fileStore = scope.ServiceProvider.GetRequiredService<IFileStore>();
+            var audioFilter = scope.ServiceProvider.GetRequiredService<IAudioFilter>();
+
+            foreach (var entity in unfinishedFilters)
+            {
+                await ApplyFilterAsync(entity.Id, entity, db, fileStore, audioFilter, BaseUrlOf(entity), ct);
+            }
+
+            _logger.LogInformation("Recuperados {JobCount} jobs de filtro interrompidos.", unfinishedFilters.Count);
         }
     }
 

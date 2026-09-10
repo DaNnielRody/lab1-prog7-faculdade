@@ -2,6 +2,8 @@ export type SummaryStatus = "Pending" | "Processing" | "Completed" | "Failed" | 
 
 export type ProcessingStatus = "Pending" | "Processing" | "Completed" | "Failed";
 
+export type FilterStatus = "Pending" | "Processing" | "Completed" | "Failed";
+
 export interface AudioFileDto {
   id: string;
   originalFileName: string;
@@ -18,6 +20,11 @@ export interface AudioFileDto {
   summaryLanguage?: string | null;
   summaryError?: string | null;
   summaryUpdatedAtUtc?: string | null;
+  filterStatus?: FilterStatus;
+  filterError?: string | null;
+  filteredUrl?: string | null;
+  filteredSizeBytes?: number | null;
+  filteredContentType?: string | null;
 }
 
 export interface AudioSummaryDto {

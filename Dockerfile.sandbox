@@ -43,3 +43,27 @@ ENV ConnectionStrings__Default="Data Source=/tmp/sandbox/data/audios.db" \
     Summarization__Enabled=false
 
 CMD ["/usr/local/bin/smoke.sh"]
+
+# node:24-bookworm-slim: CI (.github/workflows/ci.yml) pins actions/setup-node to node-version '24';
+# web/package.json declares no engines field, so this mirrors CI's pin exactly. bookworm-slim
+# (Debian, glibc) matches the hardening posture of the .NET stages above (apt-get, groupadd/useradd),
+# unlike alpine's musl base.
+FROM node:24-bookworm-slim AS client-build
+WORKDIR /app/web
+
+RUN groupadd --gid 1001 sandbox \
+    && useradd --uid 1001 --gid 1001 --create-home --shell /usr/sbin/nologin sandbox \
+    && chown -R sandbox:sandbox /app/web
+
+USER sandbox
+
+COPY --chown=sandbox:sandbox web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY --chown=sandbox:sandbox web/ .
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN npm run test:run \
+    && npm run typecheck \
+    && npm run build

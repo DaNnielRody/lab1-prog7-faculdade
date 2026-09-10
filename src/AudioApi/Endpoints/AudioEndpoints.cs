@@ -44,6 +44,11 @@ public static class AudioEndpoints
             .WithSummary("Baixa os bytes do arquivo de áudio.")
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/download/filtered", DownloadFilteredAsync)
+            .WithName("DownloadFilteredAudio")
+            .WithSummary("Baixa os bytes do áudio filtrado (realce de voz).")
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapGet("/{id:guid}/summary", GetSummaryAsync)
             .WithName("GetAudioSummary")
             .WithSummary("Obtém o resumo do áudio (no máximo 500 caracteres) e o estado da sumarização.")
@@ -210,6 +215,30 @@ public static class AudioEndpoints
             return Results.Problem(
                 title: "Arquivo não encontrado",
                 detail: "O registro existe, mas o arquivo não está mais presente no file store.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.File(content.Stream, content.ContentType, entity.OriginalFileName);
+    }
+
+    private static async Task<IResult> DownloadFilteredAsync(
+        Guid id, AppDbContext db, IFileStore fileStore, CancellationToken ct)
+    {
+        var entity = await db.AudioFiles.FindAsync([id], ct);
+        if (entity is null || entity.FilterStatus != FilterStatus.Completed || entity.FilteredStoredFileName is null)
+        {
+            return Results.Problem(
+                title: "Áudio filtrado não encontrado",
+                detail: $"Nenhum áudio filtrado com o id {id} foi encontrado.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var content = await fileStore.OpenReadAsync(entity.FilteredStoredFileName, entity.FilteredContentType ?? DefaultContentType, ct);
+        if (content is null)
+        {
+            return Results.Problem(
+                title: "Arquivo não encontrado",
+                detail: "O registro existe, mas o arquivo filtrado não está mais presente no file store.",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
